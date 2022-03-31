@@ -15,7 +15,6 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/minio/minio-go/v7"
 	"github.com/nats-io/nats.go"
-	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -28,21 +27,34 @@ const DefaultBatchSize = 8
 // Dequeuer is able to dequeue documents from the queue and upload documents to the S3.
 type Dequeuer interface {
 	Dequeue(context.Context) error
-	Run(context.Context, *run.Group) error
+	Runner(context.Context) func() error
 }
 
+// Object represents an object that can be uploaded into
+// the object storage.
 type Object interface {
-	// Content type
+	// html Content type
 	MimeType() string
+	// Length of the underlying buffer of the io.Reader
 	Len() int64
 	io.Reader
 }
 
-type Client[Job any] interface {
+// Client is able to create an Object from a Job.
+// Client must be implemented by the uses.
+type Client[Job Identifiable] interface {
+	// Download converts a Job into an Object.
+	// In most cases it will use the ID of the Job to
+	// download the object from an API, or it can create
+	// the Object directly from the Job.
 	Download(context.Context, Job) (Object, error)
 }
 
+// Identifiable must be implemented by the Job.
+// The ID returned by ID() will be uses as a key
+// in the object storage.
 type Identifiable interface {
+	// ID returns a unique id.
 	ID() string
 }
 
@@ -100,20 +112,14 @@ func New[Job Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, web
 	}
 }
 
-func (d dequeuer[Job]) Run(ctx context.Context, g *run.Group) error {
-	ctx, cancel := context.WithCancel(ctx)
-	g.Add(func() error {
-		level.Info(d.l).Log("msg", "starting the bea-s3 syncer")
-
+func (d dequeuer[Job]) Runner(ctx context.Context) func() error {
+	return func() error {
+		level.Info(d.l).Log("msg", "starting the dequeuer")
 		if err := d.Dequeue(ctx); err != nil {
-			return fmt.Errorf("syncer exited unexpectedly: %w", err)
+			return fmt.Errorf("dequeuer exited unexpectedly: %w", err)
 		}
 		return nil
-	}, func(error) {
-		cancel()
-	})
-
-	return nil
+	}
 }
 
 func (s *dequeuer[Job]) Dequeue(ctx context.Context) error {
