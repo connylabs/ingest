@@ -1,0 +1,19 @@
+---
+stages:
+  - test
+
+lint:
+  tags:
+    - kubernetes
+  stage: test
+  image: golang:1.18.0
+  script:
+    - '[ -z "$(gofmt -d ./)" ]'
+
+vet:
+  tags:
+    - kubernetes
+  stage: test
+  image: golang:1.18.0
+  script:
+    - go vet ./...
