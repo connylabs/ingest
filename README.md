@@ -84,7 +84,7 @@ It implements the following interface.
 Use either function to start the Dequeuer.
 
 ```go
-// Dequeuer is able to dequeue documents from the queue and upload documents to the S3.
+// Dequeuer is able to dequeue element from the queue and upload documents to S3.
 type Dequeuer interface {
 	Dequeue(context.Context) error
 	Runner(context.Context) func() error

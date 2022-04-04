@@ -48,7 +48,7 @@ func (e *enqueue[T]) Runner(ctx context.Context) func() error {
 	}
 }
 
-type enqueue[T any] struct {
+type enqueuer[T any] struct {
 	q                     ingest.Queue
 	n                     ingest.Nexter[T]
 	l                     log.Logger
