@@ -6,16 +6,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/mietright/ingest"
 )
-
-// DefaultStreamName default stream name
-const DefaultStreamName = "str"
-
-// DefaultConsumerName default consumer name
-const DefaultConsumerName = "con"
-
-// DefaultQueueSubject default queue subject
-const DefaultQueueSubject = "jobs"
 
 type queue struct {
 	js                            nats.JetStreamContext
@@ -24,15 +17,8 @@ type queue struct {
 	queueInteractionsTotalCounter *prometheus.CounterVec
 }
 
-// Queue is able to publish messages and subscribe to incoming messages
-type Queue interface {
-	Close(context.Context) error
-	Publish(string, []byte) error
-	PullSubscribe(string, string, ...nats.SubOpt) (Dequeuer, error)
-}
-
 // New is able to connect to the queue
-func New(url string, reg prometheus.Registerer) (Queue, error) {
+func New(url string, reg prometheus.Registerer) (ingest.Queue, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
 		return &queue{conn: nil}, err
@@ -70,11 +56,11 @@ func (qc *queue) Publish(subject string, data []byte) error {
 }
 
 // PullSubscribe creates a Subscription that can fetch messages.
-func (qc *queue) PullSubscribe(subject string, durable string, opts ...nats.SubOpt) (Dequeuer, error) {
+func (qc *queue) PullSubscribe(subject string, durable string, opts ...nats.SubOpt) (ingest.Subscription, error) {
 	sub, err := qc.js.PullSubscribe(subject, durable, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return newDequeuer(sub, qc.reg), nil
+	return newSubscription(sub, qc.queueInteractionsTotalCounter), nil
 }

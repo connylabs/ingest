@@ -18,53 +18,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/mietright/ingest/queue"
+	"github.com/mietright/ingest"
 )
 
-// DefaultBatchSize default size of the batch of messages pulled from the queue
-const DefaultBatchSize = 8
-
-// Dequeuer is able to dequeue documents from the queue and upload documents to the S3.
-type Dequeuer interface {
-	Dequeue(context.Context) error
-	Runner(context.Context) func() error
-}
-
-// Object represents an object that can be uploaded into
-// the object storage.
-type Object interface {
-	// html Content type
-	MimeType() string
-	// Length of the underlying buffer of the io.Reader
-	Len() int64
-	io.Reader
-}
-
-// Client is able to create an Object from a Job.
-// Client must be implemented by the uses.
-type Client[Job Identifiable] interface {
-	// Download converts a Job into an Object.
-	// In most cases it will use the ID of the Job to
-	// download the object from an API, or it can create
-	// the Object directly from the Job.
-	Download(context.Context, Job) (Object, error)
-}
-
-// Identifiable must be implemented by the Job.
-// The ID returned by ID() will be uses as a key
-// in the object storage.
-type Identifiable interface {
-	// ID returns a unique id.
-	ID() string
-}
-
-type dequeuer[Job Identifiable] struct {
+type dequeuer[T ingest.Identifiable] struct {
 	bucket                      string
-	c                           Client[Job]
+	c                           ingest.Client[T]
 	mc                          *minio.Client
 	l                           log.Logger
 	r                           prometheus.Registerer
-	q                           queue.Queue
+	q                           ingest.Queue
 	webhookURL                  string
 	batchSize                   int
 	streamName                  string
@@ -77,11 +40,11 @@ type dequeuer[Job Identifiable] struct {
 	webhookRequestsTotalCounter *prometheus.CounterVec
 }
 
-// New creates a new Dequeuer.
-func New[Job Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c Client[Job], mc *minio.Client,
-	q queue.Queue, streamName, consumerName, subjectName string, batchSize int, l log.Logger, r prometheus.Registerer,
-) Dequeuer {
-	return &dequeuer[Job]{
+// New creates a new ingest.Dequeuer.
+func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc *minio.Client,
+	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, l log.Logger, r prometheus.Registerer,
+) ingest.Dequeuer {
+	return &dequeuer[T]{
 		bucket:                bucket,
 		c:                     c,
 		mc:                    mc,
@@ -112,7 +75,7 @@ func New[Job Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, web
 	}
 }
 
-func (d dequeuer[Job]) Runner(ctx context.Context) func() error {
+func (d dequeuer[T]) Runner(ctx context.Context) func() error {
 	return func() error {
 		level.Info(d.l).Log("msg", "starting the dequeuer")
 		if err := d.Dequeue(ctx); err != nil {
@@ -122,8 +85,8 @@ func (d dequeuer[Job]) Runner(ctx context.Context) func() error {
 	}
 }
 
-func (s *dequeuer[Job]) Dequeue(ctx context.Context) error {
-	dequeuer, err := s.q.PullSubscribe(s.subjectName, s.consumerName, nats.Bind(s.streamName, s.consumerName))
+func (s *dequeuer[T]) Dequeue(ctx context.Context) error {
+	sub, err := s.q.PullSubscribe(s.subjectName, s.consumerName, nats.Bind(s.streamName, s.consumerName))
 	if err != nil {
 		return err
 	}
@@ -131,22 +94,22 @@ func (s *dequeuer[Job]) Dequeue(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return sub.Close()
 		default:
 		}
 
 		tctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		msgs, err := dequeuer.Dequeue(s.batchSize, nats.Context(tctx))
+		msgs, err := sub.Pop(s.batchSize, nats.Context(tctx))
 		cancel()
 		if err != nil {
 			level.Error(s.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
 			continue
 		}
-		level.Info(s.l).Log("msg", fmt.Sprintf("dequeueed %d messages from queue", len(msgs)))
+		level.Info(s.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
 
 		uris := make([]string, 0, s.batchSize)
 		for _, raw := range msgs {
-			var job Job
+			var job T
 			if err := json.Unmarshal(raw.Data, &job); err != nil {
 				level.Error(s.l).Log("msg", "failed to marshal message", "err", err.Error())
 				continue
@@ -176,7 +139,7 @@ func (s *dequeuer[Job]) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (s *dequeuer[Job]) processMsgData(ctx context.Context, job Job) (string, error) {
+func (s *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error) {
 	s.dequeuerAttemptCounter.Inc()
 
 	s3Key := prefixedObjectName(
@@ -223,7 +186,7 @@ func (s *dequeuer[Job]) processMsgData(ctx context.Context, job Job) (string, er
 	return s3Key, nil
 }
 
-func (s *dequeuer[Job]) isObjectSynced(ctx context.Context, name string, checkMarked bool) (bool, bool, error) {
+func (s *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkMarked bool) (bool, bool, error) {
 	nameToCheck := prefixedObjectName(s.bucketFilesPrefix, name)
 	if checkMarked {
 		nameToCheck = prefixedObjectName(s.bucketMetafilesPrefix, markedObjectName(name))

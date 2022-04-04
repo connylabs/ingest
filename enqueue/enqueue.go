@@ -13,28 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/mietright/ingest/queue"
+	"github.com/mietright/ingest"
 )
 
-// Nexter is able to list the objects available in the external API and returns them one by one.
-// A Nexter must be implemented for the specific service.
-type Nexter[Job any] interface {
-	// Reset initializes or resets the state of the Nexter.
-	// After Reset, calls of Next should retrieve all objects.
-	Reset(context.Context) error
-	// Next returns one Job that represents an object.
-	// If all objects were returned by Next io.EOF must be returned.
-	Next(context.Context) (*Job, error)
-}
-
-// Enqueue is able to enqueue jobs into NATS.
-type Enqueue[Job any] interface {
-	Enqueue(context.Context) error
-	// Runner runs Enqueue in the interval passes to New.
-	Runner(context.Context) func() error
-}
-
-func (e *enqueue[Job]) Runner(ctx context.Context) func() error {
+func (e *enqueue[T]) Runner(ctx context.Context) func() error {
 	return func() error {
 		level.Info(e.l).Log("msg", "starting the enqueuer")
 		defer func() {
@@ -66,9 +48,9 @@ func (e *enqueue[Job]) Runner(ctx context.Context) func() error {
 	}
 }
 
-type enqueue[Job any] struct {
-	q                     queue.Queue
-	n                     Nexter[Job]
+type enqueue[T any] struct {
+	q                     ingest.Queue
+	n                     ingest.Nexter[T]
 	l                     log.Logger
 	timeout               time.Duration
 	queueSubject          string
@@ -77,8 +59,8 @@ type enqueue[Job any] struct {
 }
 
 // New creates new enqueue
-func New[Job any](n Nexter[Job], queueSubject string, q queue.Queue, reg prometheus.Registerer, timeout time.Duration, l log.Logger) (*enqueue[Job], error) {
-	return &enqueue[Job]{
+func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, timeout time.Duration, l log.Logger) (ingest.Enqueue[T], error) {
+	return &enqueue[T]{
 		q:            q,
 		n:            n,
 		l:            l,

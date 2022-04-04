@@ -3,39 +3,36 @@ package queue
 import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/mietright/ingest"
 )
 
-// Dequeuer is able to pull a batch of messages from a stream for a pull consumer.
-type Dequeuer interface {
-	Dequeue(int, ...nats.PullOpt) ([]*nats.Msg, error)
-}
-
-type dequeuer struct {
+type subscription struct {
 	sub                           *nats.Subscription
 	queueInteractionsTotalCounter *prometheus.CounterVec
 }
 
-func newDequeuer(sub *nats.Subscription, reg prometheus.Registerer) Dequeuer {
-	queueInteractionsTotalCounter := promauto.With(reg).NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "queue_operations_total",
-			Help: "The number of interactions with queue.",
-		}, []string{"operation", "result"})
-
-	return &dequeuer{
+func newSubscription(sub *nats.Subscription, cv *prometheus.CounterVec) ingest.Subscription {
+	return &subscription{
 		sub:                           sub,
-		queueInteractionsTotalCounter: queueInteractionsTotalCounter,
+		queueInteractionsTotalCounter: cv,
 	}
 }
 
-func (f *dequeuer) Dequeue(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
+func (f *subscription) Close() error {
+	if f.sub == nil {
+		return nil
+	}
+	return f.sub.Drain()
+}
+
+func (f *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
 	msgs, err := f.sub.Fetch(batch, opts...)
 	if err != nil {
-		f.queueInteractionsTotalCounter.WithLabelValues("fetch", "error")
+		f.queueInteractionsTotalCounter.WithLabelValues("pop", "error")
 		return nil, err
 	}
-	f.queueInteractionsTotalCounter.WithLabelValues("fetch", "success")
+	f.queueInteractionsTotalCounter.WithLabelValues("pop", "success")
 
 	return msgs, nil
 }
