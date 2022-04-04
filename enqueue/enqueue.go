@@ -16,7 +16,7 @@ import (
 	"github.com/mietright/ingest"
 )
 
-func (e *enqueue[T]) Runner(ctx context.Context) func() error {
+func (e *enqueuer[T]) Runner(ctx context.Context) func() error {
 	return func() error {
 		level.Info(e.l).Log("msg", "starting the enqueuer")
 		defer func() {
@@ -59,8 +59,8 @@ type enqueuer[T any] struct {
 }
 
 // New creates new enqueue
-func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, timeout time.Duration, l log.Logger) (ingest.Enqueue[T], error) {
-	return &enqueue[T]{
+func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, timeout time.Duration, l log.Logger) (ingest.Enqueuer[T], error) {
+	return &enqueuer[T]{
 		q:            q,
 		n:            n,
 		l:            l,
@@ -77,7 +77,7 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg pro
 	}, nil
 }
 
-func (e *enqueue[Client]) Enqueue(ctx context.Context) error {
+func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 	e.enqueueAttemptCounter.Inc()
 
 	err := e.n.Reset(ctx)
