@@ -21,10 +21,20 @@ import (
 	"github.com/mietright/ingest"
 )
 
+// Make sure that the minio Client implements the MinioClient interface.
+var _ MinioClient = &minio.Client{}
+
+// MinioClient must be implemented by the storage client.
+// The minio.Client implements this interface.
+type MinioClient interface {
+	PutObject(context.Context, string, string, io.Reader, int64, minio.PutObjectOptions) (minio.UploadInfo, error)
+	StatObject(context.Context, string, string, minio.StatObjectOptions) (minio.ObjectInfo, error)
+}
+
 type dequeuer[T ingest.Identifiable] struct {
 	bucket                      string
 	c                           ingest.Client[T]
-	mc                          *minio.Client
+	mc                          MinioClient
 	l                           log.Logger
 	r                           prometheus.Registerer
 	q                           ingest.Queue
@@ -41,7 +51,7 @@ type dequeuer[T ingest.Identifiable] struct {
 }
 
 // New creates a new ingest.Dequeuer.
-func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc *minio.Client,
+func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc MinioClient,
 	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, l log.Logger, r prometheus.Registerer,
 ) ingest.Dequeuer {
 	return &dequeuer[T]{
@@ -170,7 +180,7 @@ func (s *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 		); err != nil {
 			return err
 		}
-		if err := s.markObjectAsSynced(ctx, s3Key); err != nil {
+		if err := s.markObjectAsSynced(ctx, job.ID()); err != nil {
 			return err
 		}
 
