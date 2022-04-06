@@ -31,7 +31,7 @@ type Nexter[T any] interface {
 	Next(context.Context) (*T, error)
 }
 
-// Enqueue is able to enqueue jobs into NATS.
+// Enqueuer is able to enqueue jobs into NATS.
 type Enqueuer[T any] interface {
 	Enqueue(context.Context) error
 	// Runner runs Enqueue in the interval passes to New.

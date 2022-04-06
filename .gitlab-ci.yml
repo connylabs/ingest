@@ -8,12 +8,13 @@ lint:
   stage: test
   image: golang:1.18.0
   script:
-    - '[ -z "$(gofmt -d ./)" ]'
+    - go mod tidy
+    - make lint
 
-vet:
+test:
   tags:
     - kubernetes
   stage: test
   image: golang:1.18.0
   script:
-    - go vet ./...
+    - go test ./...
