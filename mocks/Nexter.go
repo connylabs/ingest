@@ -30,7 +30,7 @@ type Nexter struct {
 	mock.Mock
 }
 
-// Close provides a mock function with given fields: _a0
+// Reset is a mock function.
 func (n *Nexter) Reset(ctx context.Context) error {
 	ret := n.Called(ctx)
 
@@ -44,7 +44,7 @@ func (n *Nexter) Reset(ctx context.Context) error {
 	return err
 }
 
-// Close provides a mock function with given fields: _a0
+// Next is a mock function.
 func (n *Nexter) Next(ctx context.Context) (*T, error) {
 	ret := n.Called(ctx)
 
