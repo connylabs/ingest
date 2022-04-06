@@ -5,21 +5,19 @@ package mocks
 import (
 	"context"
 
-	"github.com/mietright/ingest"
-
 	"github.com/stretchr/testify/mock"
+
+	"github.com/mietright/ingest"
 )
 
-var (
-	_ ingest.Client[*T] = &Client[*T]{}
-	_ ingest.Object     = &Object{}
-)
+var _ ingest.Client[*T] = &Client[*T]{}
 
+// Client is a mock
 type Client[T ingest.Identifiable] struct {
 	mock.Mock
 }
 
-// Close provides a mock function with given fields: _a0
+// Download is a mock function.
 func (_m *Client[T]) Download(ctx context.Context, t T) (ingest.Object, error) {
 	ret := _m.Called(ctx, t)
 

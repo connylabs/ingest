@@ -4,24 +4,26 @@ package mocks
 
 import (
 	"context"
-	"fmt"
 
-	ingest "github.com/mietright/ingest"
+	"github.com/stretchr/testify/mock"
 
-	mock "github.com/stretchr/testify/mock"
+	"github.com/mietright/ingest"
 )
 
-var _ ingest.Identifiable = &T{}
+var (
+	_ ingest.Identifiable = &T{}
+	_ ingest.Nexter[T]    = &Nexter{}
+)
 
+// T is a mock.
 type T struct {
 	Id string
 }
 
+// ID returns the Id of T.
 func (t *T) ID() string {
 	return t.Id
 }
-
-var _ ingest.Nexter[T] = &Nexter{}
 
 // Nexter is a mock type for the Nexter type
 type Nexter struct {
@@ -29,40 +31,40 @@ type Nexter struct {
 }
 
 // Close provides a mock function with given fields: _a0
-func (_m *Nexter) Reset(_a0 context.Context) error {
-	ret := _m.Called(_a0)
+func (n *Nexter) Reset(ctx context.Context) error {
+	ret := n.Called(ctx)
 
-	var r0 error
+	var err error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(_a0)
+		err = rf(ctx)
 	} else {
-		r0 = ret.Error(0)
+		err = ret.Error(0)
 	}
 
-	return r0
+	return err
 }
 
 // Close provides a mock function with given fields: _a0
-func (_m *Nexter) Next(_a0 context.Context) (*T, error) {
-	ret := _m.Called(_a0)
+func (n *Nexter) Next(ctx context.Context) (*T, error) {
+	ret := n.Called(ctx)
 
-	r0 := &T{}
+	t := &T{}
 	if rf, ok := ret.Get(0).(func(context.Context) *T); ok {
-		r0 = rf(_a0)
+		t = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*T)
+			t = ret.Get(0).(*T)
 		} else {
-			r0 = nil
+			t = nil
 		}
 	}
-	var r1 error
+
+	var err error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(_a0)
+		err = rf(ctx)
 	} else {
-		r1 = ret.Error(1)
+		err = ret.Error(1)
 	}
 
-	fmt.Printf("next returning\n\tt=%v\n\terr=%v\n", r0, r1)
-	return r0, r1
+	return t, err
 }

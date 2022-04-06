@@ -8,7 +8,7 @@ GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
-MOCKERY_BINARY := $(BIN_DIR)/mockery
+MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 
 $(BIN_DIR):
 	mkdir -p bin

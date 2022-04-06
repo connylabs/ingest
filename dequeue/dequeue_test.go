@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -21,7 +20,6 @@ func TestDequeue(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		ctx, cancel := context.WithCancel(context.Background())
 		c := new(mocks.Client[*mocks.T])
 		q := new(mocks.Queue)
 		mc := new(mocks.MinioClient)
@@ -36,18 +34,11 @@ func TestDequeue(t *testing.T) {
 
 		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
 
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			if err := d.Dequeue(ctx); err != nil {
-				t.Error(err)
-			}
-			wg.Done()
-		}()
-
-		time.Sleep(1 * time.Millisecond)
-		cancel()
-		wg.Wait()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+		if err := d.Dequeue(ctx); err != nil {
+			t.Error(err)
+		}
 
 		q.AssertExpectations(t)
 		sub.AssertExpectations(t)
@@ -55,7 +46,6 @@ func TestDequeue(t *testing.T) {
 	t.Run("one object", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		ctx, cancel := context.WithCancel(context.Background())
 		c := new(mocks.Client[*mocks.T])
 		q := new(mocks.Queue)
 		mc := new(mocks.MinioClient)
@@ -83,18 +73,11 @@ func TestDequeue(t *testing.T) {
 
 		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
 
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			if err := d.Dequeue(ctx); err != nil {
-				t.Error(err)
-			}
-			wg.Done()
-		}()
-
-		time.Sleep(1 * time.Millisecond)
-		cancel()
-		wg.Wait()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+		if err := d.Dequeue(ctx); err != nil {
+			t.Error(err)
+		}
 
 		q.AssertExpectations(t)
 		sub.AssertExpectations(t)
@@ -105,7 +88,6 @@ func TestDequeue(t *testing.T) {
 	t.Run("object exists", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		ctx, cancel := context.WithCancel(context.Background())
 		c := new(mocks.Client[*mocks.T])
 		q := new(mocks.Queue)
 		mc := new(mocks.MinioClient)
@@ -125,18 +107,11 @@ func TestDequeue(t *testing.T) {
 
 		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
 
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			if err := d.Dequeue(ctx); err != nil {
-				t.Error(err)
-			}
-			wg.Done()
-		}()
-
-		time.Sleep(1 * time.Millisecond)
-		cancel()
-		wg.Wait()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+		if err := d.Dequeue(ctx); err != nil {
+			t.Error(err)
+		}
 
 		q.AssertExpectations(t)
 		sub.AssertExpectations(t)
