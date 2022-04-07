@@ -54,6 +54,9 @@ type dequeuer[T ingest.Identifiable] struct {
 func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc MinioClient,
 	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, l log.Logger, r prometheus.Registerer,
 ) ingest.Dequeuer {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	return &dequeuer[T]{
 		bucket:                bucket,
 		c:                     c,
@@ -82,16 +85,6 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 				Name: "webhook_http_client_requests_total",
 				Help: "The number webhook HTTP requests.",
 			}, []string{"result"}),
-	}
-}
-
-func (d dequeuer[T]) Runner(ctx context.Context) func() error {
-	return func() error {
-		level.Info(d.l).Log("msg", "starting the dequeuer")
-		if err := d.Dequeue(ctx); err != nil {
-			return fmt.Errorf("dequeuer exited unexpectedly: %w", err)
-		}
-		return nil
 	}
 }
 
