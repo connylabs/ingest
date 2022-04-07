@@ -8,7 +8,7 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/log/level"
 
-	"github.com/mietright/ingest"
+	"github.com/connylabs/ingest"
 )
 
 // NewEnqueuerRunner produces a runnable function from an ingest.Enqueuer.

@@ -4,7 +4,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/mietright/ingest"
+	"github.com/connylabs/ingest"
 )
 
 type subscription struct {

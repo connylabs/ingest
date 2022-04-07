@@ -18,7 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/mietright/ingest"
+	"github.com/connylabs/ingest"
 )
 
 // Make sure that the minio Client implements the MinioClient interface.

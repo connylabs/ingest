@@ -2,7 +2,7 @@
 
 BIN_DIR := bin
 PROJECT := ingest
-PKG := github.com/mietright/$(PROJECT)
+PKG := github.com/connylabs/$(PROJECT)
 
 GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
@@ -49,7 +49,7 @@ mocks/Object.go: ingest.go $(MOCKERY_BINARY)
 
 mocks/MinioClient.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --srcpkg github.com/mietright/ingest/dequeue --name="MinioClient"
+	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/dequeue --name="MinioClient"
 
 lint-go: $(GOLINT_BINARY)
 	@echo 'go vet $(GO_PKGS)'
