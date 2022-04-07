@@ -26,19 +26,3 @@ func (_m *Dequeuer) Dequeue(_a0 context.Context) error {
 
 	return r0
 }
-
-// Runner provides a mock function with given fields: _a0
-func (_m *Dequeuer) Runner(_a0 context.Context) func() error {
-	ret := _m.Called(_a0)
-
-	var r0 func() error
-	if rf, ok := ret.Get(0).(func(context.Context) func() error); ok {
-		r0 = rf(_a0)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(func() error)
-		}
-	}
-
-	return r0
-}

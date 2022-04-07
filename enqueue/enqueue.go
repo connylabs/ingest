@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-kit/kit/log"
@@ -19,14 +18,13 @@ type enqueuer[T any] struct {
 	q                     ingest.Queue
 	n                     ingest.Nexter[T]
 	l                     log.Logger
-	interval              time.Duration
 	queueSubject          string
 	enqueueErrorCounter   prometheus.Counter
 	enqueueAttemptCounter prometheus.Counter
 }
 
 // New creates new ingest.Enqueuer.
-func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, interval time.Duration, l log.Logger) (ingest.Enqueuer, error) {
+func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
@@ -34,7 +32,6 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg pro
 		q:            q,
 		n:            n,
 		l:            l,
-		interval:     interval,
 		queueSubject: queueSubject,
 		enqueueErrorCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
 			Name: "enqueue_errors_total",

@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/prometheus/client_golang/prometheus"
@@ -74,7 +73,7 @@ func TestEnqueue(t *testing.T) {
 
 			q, n, _ := tc.expect()
 
-			e, err := New[mocks.T](n, "sub", q, reg, 1*time.Second, logger)
+			e, err := New[mocks.T](n, "sub", q, reg, logger)
 			if err != nil {
 				t.Error(err)
 			}
@@ -96,7 +95,7 @@ func TestEnqueue(t *testing.T) {
 		eerr := errors.New("some error")
 		n.On("Reset", mock.Anything).Return(eerr).Once()
 
-		e, err := New[mocks.T](n, "sub", q, reg, 1*time.Second, logger)
+		e, err := New[mocks.T](n, "sub", q, reg, logger)
 		if err != nil {
 			t.Error(err)
 		}
