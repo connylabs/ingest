@@ -1,4 +1,4 @@
-module github.com/mietright/ingest
+module github.com/connylabs/ingest
 
 go 1.18
 

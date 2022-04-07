@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/mietright/ingest/mocks"
+	"github.com/connylabs/ingest/mocks"
 )
 
 func TestEnqueue(t *testing.T) {

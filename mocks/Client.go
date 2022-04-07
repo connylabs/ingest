@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/mietright/ingest"
+	"github.com/connylabs/ingest"
 )
 
 var _ ingest.Client[*T] = &Client[*T]{}

@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	ingest "github.com/mietright/ingest"
+	ingest "github.com/connylabs/ingest"
 	mock "github.com/stretchr/testify/mock"
 
 	nats "github.com/nats-io/nats.go"
