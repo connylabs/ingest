@@ -33,7 +33,7 @@ func NewEnqueuerRunner(ctx context.Context, e ingest.Enqueuer, interval time.Dur
 			case <-ticker.C:
 				ctx, cancel := context.WithTimeout(ctx, interval)
 				if err := e.Enqueue(ctx); err != nil {
-					level.Error(l).Log("msg", "failed to dequeue", "err", err.Error())
+					level.Error(l).Log("msg", "failed to enqueue", "err", err.Error())
 				}
 				defer cancel()
 			case <-ctx.Done():

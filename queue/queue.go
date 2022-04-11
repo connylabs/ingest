@@ -48,10 +48,10 @@ func (qc *queue) Close(ctx context.Context) error {
 func (qc *queue) Publish(subject string, data []byte) error {
 	_, err := qc.js.Publish(subject, data)
 	if err != nil {
-		qc.queueInteractionsTotalCounter.WithLabelValues("publish", "error")
+		qc.queueInteractionsTotalCounter.WithLabelValues("publish", "error").Inc()
 		return err
 	}
-	qc.queueInteractionsTotalCounter.WithLabelValues("publish", "success")
+	qc.queueInteractionsTotalCounter.WithLabelValues("publish", "success").Inc()
 	return nil
 }
 
