@@ -29,10 +29,10 @@ func (f *subscription) Close() error {
 func (f *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
 	msgs, err := f.sub.Fetch(batch, opts...)
 	if err != nil {
-		f.queueInteractionsTotalCounter.WithLabelValues("pop", "error")
+		f.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
 		return nil, err
 	}
-	f.queueInteractionsTotalCounter.WithLabelValues("pop", "success")
+	f.queueInteractionsTotalCounter.WithLabelValues("pop", "success").Inc()
 
 	return msgs, nil
 }

@@ -22,7 +22,17 @@ func TestEnqueue(t *testing.T) {
 		expect func() (*mocks.Queue, *mocks.Nexter, *mocks.T)
 	}{
 		{
-			name: "no data",
+			name: "nexter returns EOF",
+			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
+				q := new(mocks.Queue)
+				n := new(mocks.Nexter)
+				n.On("Reset", mock.Anything).Return(nil).Once()
+				n.On("Next", mock.Anything).Return(nil, io.EOF).Once()
+				return q, n, nil
+			},
+		},
+		{
+			name: "nexter returns nil",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
 				q := new(mocks.Queue)
 				n := new(mocks.Nexter)
