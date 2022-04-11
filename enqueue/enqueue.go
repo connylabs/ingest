@@ -35,11 +35,11 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg pro
 		queueSubject: queueSubject,
 		enqueueErrorCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
 			Name: "enqueue_errors_total",
-			Help: "Number of errors occurred while importing documents.",
+			Help: "Number of errors occurred while importing items.",
 		}),
 		enqueueAttemptCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
 			Name: "enqueue_attempts_total",
-			Help: "Number of document import attempts.",
+			Help: "Number of item import attempts.",
 		}),
 	}, nil
 }
@@ -56,22 +56,22 @@ func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 	}
 	operation := func() error {
 		for {
-			document, err := e.n.Next(ctx)
+			item, err := e.n.Next(ctx)
 			if err != nil {
 				if err == io.EOF {
 					return backoff.Permanent(err)
 				}
-				level.Warn(e.l).Log("msg", "failed to get next document", "err", err.Error())
+				level.Warn(e.l).Log("msg", "failed to get next item", "err", err.Error())
 				return err
 			}
-			data, err := json.Marshal(document)
+			data, err := json.Marshal(item)
 			if err != nil {
-				level.Warn(e.l).Log("msg", "failed to unmarshal retrieved document", "err", err.Error())
+				level.Warn(e.l).Log("msg", "failed to unmarshal retrieved item", "err", err.Error())
 				return err
 			}
 
 			if err := e.q.Publish(e.queueSubject, data); err != nil {
-				level.Warn(e.l).Log("msg", "failed to publish document to queue", "err", err.Error())
+				level.Warn(e.l).Log("msg", "failed to publish item to queue", "err", err.Error())
 				return err
 			}
 		}
