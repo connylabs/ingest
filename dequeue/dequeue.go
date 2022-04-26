@@ -74,11 +74,11 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 
 		dequeuerErrorCounter: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "dequeuer_errors_total",
-			Help: "Number of errors that occured while syncing documents.",
+			Help: "Number of errors that occured while syncing items.",
 		}),
 		dequeuerAttemptCounter: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "dequeuer_attempts_total",
-			Help: "Number of document sync attempts.",
+			Help: "Number of item sync attempts.",
 		}),
 		webhookRequestsTotalCounter: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{

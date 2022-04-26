@@ -19,20 +19,20 @@ func newSubscription(sub *nats.Subscription, cv *prometheus.CounterVec) ingest.S
 	}
 }
 
-func (f *subscription) Close() error {
-	if f.sub == nil {
+func (s *subscription) Close() error {
+	if s.sub == nil {
 		return nil
 	}
-	return f.sub.Drain()
+	return s.sub.Drain()
 }
 
-func (f *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
-	msgs, err := f.sub.Fetch(batch, opts...)
+func (s *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
+	msgs, err := s.sub.Fetch(batch, opts...)
 	if err != nil {
-		f.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
+		s.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
 		return nil, err
 	}
-	f.queueInteractionsTotalCounter.WithLabelValues("pop", "success").Inc()
+	s.queueInteractionsTotalCounter.WithLabelValues("pop", "success").Inc()
 
 	return msgs, nil
 }
