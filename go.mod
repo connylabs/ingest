@@ -3,8 +3,10 @@ module github.com/connylabs/ingest
 go 1.18
 
 require (
+	github.com/campoy/embedmd v1.0.0
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/go-kit/kit v0.12.0
+	github.com/go-kit/log v0.2.0
 	github.com/minio/minio-go/v7 v7.0.23
 	github.com/nats-io/nats.go v1.13.1-0.20220308171302-2f2f6968e98d
 	github.com/prometheus/client_golang v1.12.1
@@ -19,7 +21,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
-	github.com/go-kit/log v0.2.0 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/uuid v1.1.2 // indirect
