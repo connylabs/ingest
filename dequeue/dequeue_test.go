@@ -32,7 +32,7 @@ func TestDequeue(t *testing.T) {
 
 		sub.On("Close").Return(nil).Once()
 
-		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
+		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -62,6 +62,7 @@ func TestDequeue(t *testing.T) {
 		sub.On("Close").Return(nil).Once()
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
+		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 
 		obj.On("Len").Return(int64(64)).Once()
 		obj.On("MimeType").Return("plain/text").Once()
@@ -71,7 +72,7 @@ func TestDequeue(t *testing.T) {
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/foo", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
 			On("StatObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
+		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -105,7 +106,7 @@ func TestDequeue(t *testing.T) {
 
 		mc.On("StatObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
-		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, logger, reg)
+		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, mc, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()

@@ -36,3 +36,16 @@ func (_m *Client[T]) Download(ctx context.Context, t T) (ingest.Object, error) {
 	}
 	return obj, err
 }
+
+// CleanUp is a mock function.
+func (_m *Client[T]) CleanUp(ctx context.Context, t T) error {
+	ret := _m.Called(ctx, t)
+
+	var err error
+	if rf, ok := ret.Get(0).(func(context.Context, T) error); ok {
+		err = rf(ctx, t)
+	} else {
+		err = ret.Error(0)
+	}
+	return err
+}

@@ -65,6 +65,14 @@ type Client[T Identifiable] interface {
 	// however in some cases it is possible to create
 	// the Object directly from the T.
 	Download(context.Context, T) (Object, error)
+	// CleanUp is called after an object is uploaded
+	// to object storage. In most cases, this will
+	// serve the purpose of removing the object from
+	// the source API so that it is no longer returned
+	// by the Nexter and as such is not resynchronized.
+	// This method must be idempotent and safe to call
+	// multiple times.
+	CleanUp(context.Context, T) error
 }
 
 // Identifiable must be implemented by the caller for their T.
