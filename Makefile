@@ -7,11 +7,15 @@ PKG := github.com/connylabs/$(PROJECT)
 GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
+EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd
 GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
 MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 
 $(BIN_DIR):
 	mkdir -p bin
+
+README.md: $(EMBEDMD_BINARY) ingest.go
+	$(EMBEDMD_BINARY) -w $@
 
 fmt:
 	@echo $(GO_PKGS)
@@ -83,3 +87,6 @@ $(GOLINT_BINARY): | $(BIN_DIR)
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/vektra/mockery/v2
+
+$(EMBEDMD_BINARY): | $(BIN_DIR)
+	go build -o $@ github.com/campoy/embedmd

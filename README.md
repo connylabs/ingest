@@ -15,6 +15,7 @@ It can put either just an ID or the entire contents of the object into the queue
 
 For a new service you must implement the following `Nexter` interface:
 
+[embedmd]:# (ingest.go /\/\/ Nexter/ /}/)
 ```go
 // Nexter is able to list the elements available in the external API and returns them one by one.
 // A Nexter must be implemented for the specific service.
@@ -33,6 +34,7 @@ type Nexter[T any] interface {
 To use the Enqueuer create, a new one with `enqueue.New`.
 It implements the following interface:
 
+[embedmd]:# (ingest.go /\/\/ Enqueuer/ /}/)
 ```go
 // Enqueuer is able to enqueue elements into NATS.
 type Enqueuer interface {
@@ -47,6 +49,7 @@ The `Dequeuer` reads from the queue and uploads the object into object storage.
 You need implement the `Client` interface.
 **Note**: if the entire object is transported over the queue, then the `Download` operation can directly convert the given `T` into an object rather than download it from the API.
 
+[embedmd]:# (ingest.go /\/\/ Object / /}/)
 ```go
 // Object represents an object that can be uploaded into object storage.
 type Object interface {
@@ -56,14 +59,17 @@ type Object interface {
 	Len() int64
 	io.Reader
 }
+```
 
+[embedmd]:# (ingest.go /\/\/ Client/ /}/)
+```go
 // Client is able to create an Object from a T.
 // Client must be implemented by the caller.
 type Client[T Identifiable] interface {
 	// Download converts a T into an Object.
 	// In most cases it will use the ID of the T to
 	// download the object from an API,
-        // however in some cases it is possible to create
+	// however in some cases it is possible to create
 	// the Object directly from the T.
 	Download(context.Context, T) (Object, error)
 	// CleanUp is called after an object is uploaded
@@ -75,7 +81,10 @@ type Client[T Identifiable] interface {
 	// multiple times.
 	CleanUp(context.Context, T) error
 }
+```
 
+[embedmd]:# (ingest.go /\/\/ Identifiable/ /}/)
+```go
 // Identifiable must be implemented by the caller for their T.
 // The ID returned by ID() will be uses as a key  in object storage.
 type Identifiable interface {
@@ -87,6 +96,7 @@ type Identifiable interface {
 To use the Dequeuer, create a new one with `dequeuer.New`.
 It implements the following interface:
 
+[embedmd]:# (ingest.go /\/\/ Dequeuer/ /}/)
 ```go
 // Dequeuer is able to dequeue elements from the queue and upload objects to object storage.
 type Dequeuer interface {
