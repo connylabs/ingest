@@ -38,6 +38,7 @@ type dequeuer[T ingest.Identifiable] struct {
 	l                           log.Logger
 	r                           prometheus.Registerer
 	q                           ingest.Queue
+	cleanUp                     bool
 	webhookURL                  string
 	batchSize                   int
 	streamName                  string
@@ -52,7 +53,7 @@ type dequeuer[T ingest.Identifiable] struct {
 
 // New creates a new ingest.Dequeuer.
 func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc MinioClient,
-	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, l log.Logger, r prometheus.Registerer,
+	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer,
 ) ingest.Dequeuer {
 	if l == nil {
 		l = log.NewNopLogger()
@@ -64,6 +65,7 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 		l:                     l,
 		r:                     r,
 		q:                     q,
+		cleanUp:               cleanUp,
 		webhookURL:            webhookURL,
 		batchSize:             batchSize,
 		streamName:            streamName,
@@ -88,8 +90,8 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 	}
 }
 
-func (s *dequeuer[T]) Dequeue(ctx context.Context) error {
-	sub, err := s.q.PullSubscribe(s.subjectName, s.consumerName, nats.Bind(s.streamName, s.consumerName))
+func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
+	sub, err := d.q.PullSubscribe(d.subjectName, d.consumerName, nats.Bind(d.streamName, d.consumerName))
 	if err != nil {
 		return err
 	}
@@ -102,70 +104,70 @@ func (s *dequeuer[T]) Dequeue(ctx context.Context) error {
 		}
 
 		tctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		msgs, err := sub.Pop(s.batchSize, nats.Context(tctx))
+		msgs, err := sub.Pop(d.batchSize, nats.Context(tctx))
 		cancel()
 		if err != nil {
-			level.Error(s.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
+			level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
 			continue
 		}
-		level.Info(s.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
+		level.Info(d.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
 
-		uris := make([]string, 0, s.batchSize)
+		uris := make([]string, 0, d.batchSize)
 		for _, raw := range msgs {
 			var job T
 			if err := json.Unmarshal(raw.Data, &job); err != nil {
-				level.Error(s.l).Log("msg", "failed to marshal message", "err", err.Error())
+				level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 				continue
 			}
-			k, err := s.processMsgData(ctx, job)
+			k, err := d.processMsgData(ctx, job)
 			if err != nil {
-				level.Error(s.l).Log("msg", "failed to process message", "err", err.Error())
+				level.Error(d.l).Log("msg", "failed to process message", "err", err.Error())
 				continue
 			}
-			level.Info(s.l).Log("msg", "successfully processed message", "data", job)
+			level.Info(d.l).Log("msg", "successfully processed message", "data", job)
 			if err := raw.AckSync(); err != nil {
-				level.Error(s.l).Log("msg", "failed to ack message", "err", err.Error())
+				level.Error(d.l).Log("msg", "failed to ack message", "err", err.Error())
 				continue
 			}
-			level.Debug(s.l).Log("msg", "acked message", "data", job)
-			uris = append(uris, fmt.Sprintf("s3://%s/%s", s.bucket, k))
+			level.Debug(d.l).Log("msg", "acked message", "data", job)
+			uris = append(uris, fmt.Sprintf("s3://%s/%s", d.bucket, k))
 		}
 
-		if s.webhookURL != "" {
-			if err := s.callWebhook(ctx, uris); err != nil {
-				s.webhookRequestsTotalCounter.WithLabelValues("error").Inc()
-				level.Warn(s.l).Log("warn", "failed to call a webhook", "msg", err.Error())
+		if d.webhookURL != "" {
+			if err := d.callWebhook(ctx, uris); err != nil {
+				d.webhookRequestsTotalCounter.WithLabelValues("error").Inc()
+				level.Warn(d.l).Log("warn", "failed to call a webhook", "msg", err.Error())
 				continue
 			}
-			s.webhookRequestsTotalCounter.WithLabelValues("success").Inc()
+			d.webhookRequestsTotalCounter.WithLabelValues("success").Inc()
 		}
 	}
 }
 
-func (s *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error) {
-	s.dequeuerAttemptCounter.Inc()
+func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error) {
+	d.dequeuerAttemptCounter.Inc()
 
 	s3Key := prefixedObjectName(
-		s.bucketFilesPrefix,
+		d.bucketFilesPrefix,
 		job.ID(),
 	)
 
 	operation := func() error {
-		if synced, marked, err := s.isObjectSynced(ctx, job.ID(), true); err != nil {
+		if synced, marked, err := d.isObjectSynced(ctx, job.ID(), true); err != nil {
 			return err
 		} else if synced && !marked {
-			return s.markObjectAsSynced(ctx, job.ID())
+			return d.markObjectAsSynced(ctx, job.ID())
 		} else if synced {
 			return nil
 		}
 
-		obj, err := s.c.Download(ctx, job)
+		obj, err := d.c.Download(ctx, job)
 		if err != nil {
 			return fmt.Errorf("failed to get message %s: %w", job.ID(), err)
 		}
-		if _, err := s.mc.PutObject(
+		if _, err := d.mc.PutObject(
 			ctx,
-			s.bucket,
+			d.bucket,
 			s3Key,
 			obj,
 			obj.Len(),
@@ -173,60 +175,62 @@ func (s *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 		); err != nil {
 			return err
 		}
-		if err := s.markObjectAsSynced(ctx, job.ID()); err != nil {
+		if err := d.markObjectAsSynced(ctx, job.ID()); err != nil {
 			return err
 		}
-
-		return nil
+		if !d.cleanUp {
+			return nil
+		}
+		return d.c.CleanUp(ctx, job)
 	}
 
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil {
-		s.dequeuerErrorCounter.Inc()
+		d.dequeuerErrorCounter.Inc()
 		return "", err
 	}
 
 	return s3Key, nil
 }
 
-func (s *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkMarked bool) (bool, bool, error) {
-	nameToCheck := prefixedObjectName(s.bucketFilesPrefix, name)
+func (d *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkMarked bool) (bool, bool, error) {
+	nameToCheck := prefixedObjectName(d.bucketFilesPrefix, name)
 	if checkMarked {
-		nameToCheck = prefixedObjectName(s.bucketMetafilesPrefix, markedObjectName(name))
+		nameToCheck = prefixedObjectName(d.bucketMetafilesPrefix, markedObjectName(name))
 	}
 
-	_, err := s.mc.StatObject(ctx, s.bucket, nameToCheck, minio.StatObjectOptions{})
+	_, err := d.mc.StatObject(ctx, d.bucket, nameToCheck, minio.StatObjectOptions{})
 	if err == nil {
-		level.Debug(s.l).Log("msg", "object exists in object storage", "object", nameToCheck)
+		level.Debug(d.l).Log("msg", "object exists in object storage", "object", nameToCheck)
 		return true, checkMarked, nil
 	}
 
 	noSuchKeyErr := minio.ToErrorResponse(err).Code == "NoSuchKey"
 	if noSuchKeyErr {
-		level.Debug(s.l).Log("msg", "object does not exist in object storage", "object", nameToCheck)
+		level.Debug(d.l).Log("msg", "object does not exist in object storage", "object", nameToCheck)
 		if checkMarked {
-			return s.isObjectSynced(ctx, name, false)
+			return d.isObjectSynced(ctx, name, false)
 		}
 		return false, checkMarked, nil
 	}
-	level.Error(s.l).Log("msg", "failed to check for object in object storage", "bucket", s.bucket, "object", nameToCheck, "err", err.Error())
+	level.Error(d.l).Log("msg", "failed to check for object in object storage", "bucket", d.bucket, "object", nameToCheck, "err", err.Error())
 	return false, checkMarked, err
 }
 
-func (s *dequeuer[Client]) markObjectAsSynced(ctx context.Context, name string) error {
-	name = prefixedObjectName(s.bucketMetafilesPrefix, markedObjectName(name))
-	_, err := s.mc.PutObject(ctx, s.bucket, name, bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"})
+func (d *dequeuer[Client]) markObjectAsSynced(ctx context.Context, name string) error {
+	name = prefixedObjectName(d.bucketMetafilesPrefix, markedObjectName(name))
+	_, err := d.mc.PutObject(ctx, d.bucket, name, bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"})
 
 	return err
 }
 
-func (s *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error {
+func (d *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error {
 	requestData, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.webhookURL, bytes.NewBuffer(requestData))
+	req, err := http.NewRequestWithContext(ctx, "POST", d.webhookURL, bytes.NewBuffer(requestData))
 	if err != nil {
 		return err
 	}
