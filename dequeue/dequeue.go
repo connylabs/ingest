@@ -153,35 +153,39 @@ func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 	)
 
 	operation := func() error {
-		if synced, marked, err := d.isObjectSynced(ctx, job.ID(), true); err != nil {
+		synced, marked, err := d.isObjectSynced(ctx, job.ID(), true)
+		if err != nil {
 			return err
-		} else if synced && !marked {
-			return d.markObjectAsSynced(ctx, job.ID())
-		} else if synced {
-			return nil
 		}
 
-		obj, err := d.c.Download(ctx, job)
-		if err != nil {
-			return fmt.Errorf("failed to get message %s: %w", job.ID(), err)
+		if !synced {
+			obj, err := d.c.Download(ctx, job)
+			if err != nil {
+				return fmt.Errorf("failed to get message %s: %w", job.ID(), err)
+			}
+			if _, err := d.mc.PutObject(
+				ctx,
+				d.bucket,
+				s3Key,
+				obj,
+				obj.Len(),
+				minio.PutObjectOptions{ContentType: obj.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
+			); err != nil {
+				return err
+			}
 		}
-		if _, err := d.mc.PutObject(
-			ctx,
-			d.bucket,
-			s3Key,
-			obj,
-			obj.Len(),
-			minio.PutObjectOptions{ContentType: obj.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
-		); err != nil {
-			return err
+
+		if !marked {
+			if err := d.markObjectAsSynced(ctx, job.ID()); err != nil {
+				return err
+			}
 		}
-		if err := d.markObjectAsSynced(ctx, job.ID()); err != nil {
-			return err
+
+		if d.cleanUp {
+			return d.c.CleanUp(ctx, job)
 		}
-		if !d.cleanUp {
-			return nil
-		}
-		return d.c.CleanUp(ctx, job)
+
+		return nil
 	}
 
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
