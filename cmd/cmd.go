@@ -28,14 +28,16 @@ func NewEnqueuerRunner(ctx context.Context, e ingest.Enqueuer, interval time.Dur
 			return nil
 		}
 		for {
-			ticker := time.NewTicker(interval)
-			select {
-			case <-ticker.C:
+			{
 				ctx, cancel := context.WithTimeout(ctx, interval)
 				if err := e.Enqueue(ctx); err != nil {
 					level.Error(l).Log("msg", "failed to enqueue", "err", err.Error())
 				}
-				defer cancel()
+				cancel()
+			}
+			ticker := time.NewTicker(interval)
+			select {
+			case <-ticker.C:
 			case <-ctx.Done():
 				ticker.Stop()
 				return nil
