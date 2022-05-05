@@ -17,12 +17,12 @@ var (
 
 // T is a mock.
 type T struct {
-	Id string
+	MockID string
 }
 
-// ID returns the Id of T.
+// ID returns the ID of T.
 func (t *T) ID() string {
-	return t.Id
+	return t.MockID
 }
 
 // Nexter is a mock type for the Nexter type
