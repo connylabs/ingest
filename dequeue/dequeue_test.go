@@ -50,7 +50,7 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		mc := new(mocks.MinioClient)
 		sub := new(mocks.Subscription)
-		_t := &mocks.T{Id: "foo"}
+		_t := &mocks.T{MockID: "foo"}
 		data, _ := json.Marshal(_t)
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)
@@ -93,7 +93,7 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		mc := new(mocks.MinioClient)
 		sub := new(mocks.Subscription)
-		_t := &mocks.T{Id: "foo"}
+		_t := &mocks.T{MockID: "foo"}
 		data, _ := json.Marshal(_t)
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)

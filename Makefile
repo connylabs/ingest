@@ -5,6 +5,7 @@ PROJECT := ingest
 PKG := github.com/connylabs/$(PROJECT)
 
 GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
+GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
 SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd

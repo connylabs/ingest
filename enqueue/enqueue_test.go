@@ -44,7 +44,7 @@ func TestEnqueue(t *testing.T) {
 		{
 			name: "one entry",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
-				t := &mocks.T{Id: "foo"}
+				t := &mocks.T{MockID: "foo"}
 				data, _ := json.Marshal(t)
 				q := new(mocks.Queue)
 				q.On("Publish", "sub", data).Return(nil).Once()
@@ -58,9 +58,9 @@ func TestEnqueue(t *testing.T) {
 		{
 			name: "two entries",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
-				t := &mocks.T{Id: "foo"}
+				t := &mocks.T{MockID: "foo"}
 				data, _ := json.Marshal(t)
-				t2 := &mocks.T{Id: "foo2"}
+				t2 := &mocks.T{MockID: "foo2"}
 				data2, _ := json.Marshal(t2)
 				q := new(mocks.Queue)
 				q.
