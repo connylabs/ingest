@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"path"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -39,6 +40,7 @@ type dequeuer[T ingest.Identifiable] struct {
 	r                           prometheus.Registerer
 	q                           ingest.Queue
 	cleanUp                     bool
+	useDone                     bool
 	webhookURL                  string
 	batchSize                   int
 	streamName                  string
@@ -66,6 +68,7 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 		r:                     r,
 		q:                     q,
 		cleanUp:               cleanUp,
+		useDone:               bucketMetafilesPrefix != "",
 		webhookURL:            webhookURL,
 		batchSize:             batchSize,
 		streamName:            streamName,
@@ -147,13 +150,13 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error) {
 	d.dequeuerAttemptCounter.Inc()
 
-	s3Key := prefixedObjectName(
+	s3Key := path.Join(
 		d.bucketFilesPrefix,
 		job.ID(),
 	)
 
 	operation := func() error {
-		synced, marked, err := d.isObjectSynced(ctx, job.ID(), true)
+		synced, done, err := d.isObjectSynced(ctx, job.ID(), d.useDone)
 		if err != nil {
 			return err
 		}
@@ -175,8 +178,8 @@ func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 			}
 		}
 
-		if !marked {
-			if err := d.markObjectAsSynced(ctx, job.ID()); err != nil {
+		if !done && d.useDone {
+			if _, err := d.mc.PutObject(ctx, d.bucket, path.Join(d.bucketMetafilesPrefix, doneKey(job.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 				return err
 			}
 		}
@@ -197,35 +200,28 @@ func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 	return s3Key, nil
 }
 
-func (d *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkMarked bool) (bool, bool, error) {
-	nameToCheck := prefixedObjectName(d.bucketFilesPrefix, name)
-	if checkMarked {
-		nameToCheck = prefixedObjectName(d.bucketMetafilesPrefix, markedObjectName(name))
+func (d *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkDone bool) (bool, bool, error) {
+	nameToCheck := path.Join(d.bucketFilesPrefix, name)
+	if checkDone {
+		nameToCheck = path.Join(d.bucketMetafilesPrefix, doneKey(name))
 	}
 
 	_, err := d.mc.StatObject(ctx, d.bucket, nameToCheck, minio.StatObjectOptions{})
 	if err == nil {
 		level.Debug(d.l).Log("msg", "object exists in object storage", "object", nameToCheck)
-		return true, checkMarked, nil
+		return true, checkDone, nil
 	}
 
-	noSuchKeyErr := minio.ToErrorResponse(err).Code == "NoSuchKey"
-	if noSuchKeyErr {
+	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		level.Debug(d.l).Log("msg", "object does not exist in object storage", "object", nameToCheck)
-		if checkMarked {
+		if checkDone {
 			return d.isObjectSynced(ctx, name, false)
 		}
-		return false, checkMarked, nil
+		return false, checkDone, nil
 	}
+
 	level.Error(d.l).Log("msg", "failed to check for object in object storage", "bucket", d.bucket, "object", nameToCheck, "err", err.Error())
-	return false, checkMarked, err
-}
-
-func (d *dequeuer[Client]) markObjectAsSynced(ctx context.Context, name string) error {
-	name = prefixedObjectName(d.bucketMetafilesPrefix, markedObjectName(name))
-	_, err := d.mc.PutObject(ctx, d.bucket, name, bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"})
-
-	return err
+	return false, checkDone, err
 }
 
 func (d *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error {
@@ -253,13 +249,6 @@ func (d *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error
 	return nil
 }
 
-func markedObjectName(name string) string {
+func doneKey(name string) string {
 	return fmt.Sprintf("%s.done", name)
-}
-
-func prefixedObjectName(prefix, name string) string {
-	if prefix == "" {
-		return name
-	}
-	return fmt.Sprintf("%s/%s", prefix, name)
 }
