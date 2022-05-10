@@ -1,6 +1,6 @@
 # ingest
 
-Ingest is a library that makes it easy to build worker-queue services that use a [NATS](https://nats.io/) queue to synchronize objects from any API into an S3-compliant object storage.
+Ingest is a library that makes it easy to build worker-queue services that use a [NATS](https://nats.io/) queue to synchronize objects from any API into an object storage system.
 
 ## Usage
 
