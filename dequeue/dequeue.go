@@ -23,14 +23,12 @@ import (
 )
 
 type dequeuer[T ingest.Identifiable] struct {
-	bucket                      string
 	c                           ingest.Client[T]
 	s                           storage.Storage[T]
 	l                           log.Logger
 	r                           prometheus.Registerer
 	q                           ingest.Queue
 	cleanUp                     bool
-	useDone                     bool
 	webhookURL                  string
 	batchSize                   int
 	streamName                  string
@@ -38,8 +36,6 @@ type dequeuer[T ingest.Identifiable] struct {
 	subjectName                 string
 	dequeuerErrorCounter        prometheus.Counter
 	dequeuerAttemptCounter      prometheus.Counter
-	bucketFilesPrefix           string
-	bucketMetafilesPrefix       string
 	webhookRequestsTotalCounter *prometheus.CounterVec
 }
 
@@ -51,21 +47,17 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 		l = log.NewNopLogger()
 	}
 	return &dequeuer[T]{
-		bucket:                bucket,
-		c:                     c,
-		s:                     s,
-		l:                     l,
-		r:                     r,
-		q:                     q,
-		cleanUp:               cleanUp,
-		useDone:               bucketMetafilesPrefix != "",
-		webhookURL:            webhookURL,
-		batchSize:             batchSize,
-		streamName:            streamName,
-		consumerName:          consumerName,
-		subjectName:           subjectName,
-		bucketFilesPrefix:     bucketFilesPrefix,
-		bucketMetafilesPrefix: bucketMetafilesPrefix,
+		c:            c,
+		s:            s,
+		l:            l,
+		r:            r,
+		q:            q,
+		cleanUp:      cleanUp,
+		webhookURL:   webhookURL,
+		batchSize:    batchSize,
+		streamName:   streamName,
+		consumerName: consumerName,
+		subjectName:  subjectName,
 
 		dequeuerErrorCounter: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "dequeuer_errors_total",
