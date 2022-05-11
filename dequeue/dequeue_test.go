@@ -32,7 +32,7 @@ func TestDequeue(t *testing.T) {
 
 		sub.On("Close").Return(nil).Once()
 
-		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New[*mocks.T]("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -66,7 +66,7 @@ func TestDequeue(t *testing.T) {
 
 		s.On("Store", mock.Anything, _t, mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
 
-		d := New[*mocks.T]("bucket", "prefix", "meta", "", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New[*mocks.T]("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()

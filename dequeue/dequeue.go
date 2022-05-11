@@ -40,9 +40,7 @@ type dequeuer[T ingest.Identifiable] struct {
 }
 
 // New creates a new ingest.Dequeuer.
-func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], s storage.Storage[T],
-	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer,
-) ingest.Dequeuer {
+func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage.Storage[T], q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer) ingest.Dequeuer {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
