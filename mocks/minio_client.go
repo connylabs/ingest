@@ -4,7 +4,6 @@ package mocks
 
 import (
 	context "context"
-
 	io "io"
 
 	minio "github.com/minio/minio-go/v7"

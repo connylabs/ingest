@@ -24,37 +24,37 @@ fmt:
 
 lint: lint-go
 
-gen-mock: mocks/Queue.go mocks/Enqueuer.go mocks/Dequeuer.go mocks/Subscription.go mocks/Identifiable.go mocks/Object.go
+gen-mock: mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/identifiable.go mocks/object.go mocks/minio_client.go
 
-mocks/Queue.go: ingest.go $(MOCKERY_BINARY)
+mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Queue"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Queue"
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
-mocks/Enqueuer.go: ingest.go $(MOCKERY_BINARY)
+mocks/enqueuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Enqueuer"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Enqueuer"
 
-mocks/Dequeuer.go: ingest.go $(MOCKERY_BINARY)
+mocks/dequeuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Dequeuer"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Dequeuer"
 
-mocks/Subscription.go: ingest.go $(MOCKERY_BINARY)
+mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Subscription"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Subscription"
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
-mocks/Identifiable.go: ingest.go $(MOCKERY_BINARY)
+mocks/identifiable.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Identifiable"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Identifiable"
 
-mocks/Object.go: ingest.go $(MOCKERY_BINARY)
+mocks/object.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --name="Object"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Object"
 
-mocks/MinioClient.go: ingest.go $(MOCKERY_BINARY)
+mocks/minio_client.go: storage/s3/s3.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/dequeue --name="MinioClient"
+	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/storage/s3 --filename $(@F) --name="MinioClient"
 
 lint-go: $(GOLINT_BINARY)
 	@echo 'go vet $(GO_PKGS)'

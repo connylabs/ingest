@@ -8,34 +8,24 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"path"
+	"net/url"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/minio/minio-go/v7"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/connylabs/ingest"
+	"github.com/connylabs/ingest/storage"
 )
-
-// Make sure that the minio Client implements the MinioClient interface.
-var _ MinioClient = &minio.Client{}
-
-// MinioClient must be implemented by the storage client.
-// The minio.Client implements this interface.
-type MinioClient interface {
-	PutObject(context.Context, string, string, io.Reader, int64, minio.PutObjectOptions) (minio.UploadInfo, error)
-	StatObject(context.Context, string, string, minio.StatObjectOptions) (minio.ObjectInfo, error)
-}
 
 type dequeuer[T ingest.Identifiable] struct {
 	bucket                      string
 	c                           ingest.Client[T]
-	mc                          MinioClient
+	s                           storage.Storage[T]
 	l                           log.Logger
 	r                           prometheus.Registerer
 	q                           ingest.Queue
@@ -54,7 +44,7 @@ type dequeuer[T ingest.Identifiable] struct {
 }
 
 // New creates a new ingest.Dequeuer.
-func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], mc MinioClient,
+func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix, webhookURL string, c ingest.Client[T], s storage.Storage[T],
 	q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer,
 ) ingest.Dequeuer {
 	if l == nil {
@@ -63,7 +53,7 @@ func New[T ingest.Identifiable](bucket, bucketFilesPrefix, bucketMetafilesPrefix
 	return &dequeuer[T]{
 		bucket:                bucket,
 		c:                     c,
-		mc:                    mc,
+		s:                     s,
 		l:                     l,
 		r:                     r,
 		q:                     q,
@@ -122,7 +112,7 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 				level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 				continue
 			}
-			k, err := d.processMsgData(ctx, job)
+			u, err := d.process(ctx, job)
 			if err != nil {
 				level.Error(d.l).Log("msg", "failed to process message", "err", err.Error())
 				continue
@@ -133,7 +123,7 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 				continue
 			}
 			level.Debug(d.l).Log("msg", "acked message", "data", job)
-			uris = append(uris, fmt.Sprintf("s3://%s/%s", d.bucket, k))
+			uris = append(uris, u.String())
 		}
 
 		if d.webhookURL != "" {
@@ -147,41 +137,15 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error) {
+func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
 	d.dequeuerAttemptCounter.Inc()
 
-	s3Key := path.Join(
-		d.bucketFilesPrefix,
-		job.ID(),
-	)
-
+	var u *url.URL
 	operation := func() error {
-		synced, done, err := d.isObjectSynced(ctx, job.ID(), d.useDone)
+		var err error
+		u, err = d.s.Store(ctx, job, d.c.Download)
 		if err != nil {
 			return err
-		}
-
-		if !synced {
-			obj, err := d.c.Download(ctx, job)
-			if err != nil {
-				return fmt.Errorf("failed to get message %s: %w", job.ID(), err)
-			}
-			if _, err := d.mc.PutObject(
-				ctx,
-				d.bucket,
-				s3Key,
-				obj,
-				obj.Len(),
-				minio.PutObjectOptions{ContentType: obj.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
-			); err != nil {
-				return err
-			}
-		}
-
-		if !done && d.useDone {
-			if _, err := d.mc.PutObject(ctx, d.bucket, path.Join(d.bucketMetafilesPrefix, doneKey(job.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
-				return err
-			}
 		}
 
 		if d.cleanUp {
@@ -194,34 +158,10 @@ func (d *dequeuer[T]) processMsgData(ctx context.Context, job T) (string, error)
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil {
 		d.dequeuerErrorCounter.Inc()
-		return "", err
+		return nil, err
 	}
 
-	return s3Key, nil
-}
-
-func (d *dequeuer[T]) isObjectSynced(ctx context.Context, name string, checkDone bool) (bool, bool, error) {
-	nameToCheck := path.Join(d.bucketFilesPrefix, name)
-	if checkDone {
-		nameToCheck = path.Join(d.bucketMetafilesPrefix, doneKey(name))
-	}
-
-	_, err := d.mc.StatObject(ctx, d.bucket, nameToCheck, minio.StatObjectOptions{})
-	if err == nil {
-		level.Debug(d.l).Log("msg", "object exists in object storage", "object", nameToCheck)
-		return true, checkDone, nil
-	}
-
-	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-		level.Debug(d.l).Log("msg", "object does not exist in object storage", "object", nameToCheck)
-		if checkDone {
-			return d.isObjectSynced(ctx, name, false)
-		}
-		return false, checkDone, nil
-	}
-
-	level.Error(d.l).Log("msg", "failed to check for object in object storage", "bucket", d.bucket, "object", nameToCheck, "err", err.Error())
-	return false, checkDone, err
+	return u, nil
 }
 
 func (d *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error {
