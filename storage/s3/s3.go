@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"path"
 
@@ -44,39 +45,61 @@ func New[T ingest.Identifiable](bucket string, prefix string, metafilesPrefix st
 	}
 }
 
-func (ms *minioStorage[T]) Store(ctx context.Context, element T, download func(context.Context, T) (ingest.Object, error)) (*url.URL, error) {
-	s3Key := path.Join(ms.prefix, element.ID())
-
+func (ms *minioStorage[T]) Stat(ctx context.Context, element T) (*storage.ObjectInfo, error) {
 	synced, done, err := ms.isObjectSynced(ctx, element.ID(), ms.useDone)
 	if err != nil {
 		return nil, err
 	}
 
 	if !synced {
-		object, err := download(ctx, element)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get message %s: %w", element.ID(), err)
-		}
-
-		if _, err := ms.mc.PutObject(
-			ctx,
-			ms.bucket,
-			s3Key,
-			object,
-			object.Len(),
-			minio.PutObjectOptions{ContentType: object.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
-		); err != nil {
-			return nil, err
-		}
+		return nil, fs.ErrNotExist
 	}
 
+	// If the file exists but the done file does not,
+	// let's patch this up.
 	if !done && ms.useDone {
 		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create missing meta object for existing file: %w", err)
 		}
 	}
 
-	return &url.URL{Scheme: "s3", Host: ms.bucket, Path: s3Key}, nil
+	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
+}
+
+func (ms *minioStorage[T]) Store(ctx context.Context, element T, download func(context.Context, T) (ingest.Object, error)) (*url.URL, error) {
+	u := ms.url(element)
+
+	object, err := download(ctx, element)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get message %s: %w", element.ID(), err)
+	}
+
+	if _, err := ms.mc.PutObject(
+		ctx,
+		ms.bucket,
+		u.Path,
+		object,
+		object.Len(),
+		minio.PutObjectOptions{ContentType: object.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
+	); err != nil {
+		return nil, err
+	}
+
+	if ms.useDone {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+			return nil, fmt.Errorf("failed to create matching meta object for uploaded file: %w", err)
+		}
+	}
+
+	return u, nil
+}
+
+func (ms *minioStorage[T]) url(element T) *url.URL {
+	return &url.URL{
+		Scheme: "s3",
+		Host:   ms.bucket,
+		Path:   path.Join(ms.prefix, element.ID()),
+	}
 }
 
 func (ms *minioStorage[T]) isObjectSynced(ctx context.Context, name string, checkDone bool) (bool, bool, error) {
