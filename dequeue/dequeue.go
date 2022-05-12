@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -132,7 +133,18 @@ func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
 
 	var u *url.URL
 	operation := func() error {
-		var err error
+		_, err := d.s.Stat(ctx, job)
+		if err == nil {
+			if d.cleanUp {
+				return d.c.CleanUp(ctx, job)
+			}
+
+			return nil
+		}
+		if !os.IsNotExist(err) {
+			return err
+		}
+
 		u, err = d.s.Store(ctx, job, d.c.Download)
 		if err != nil {
 			return err
