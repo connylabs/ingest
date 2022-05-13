@@ -114,7 +114,9 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 				continue
 			}
 			level.Debug(d.l).Log("msg", "acked message", "data", job)
-			uris = append(uris, u.String())
+			if u != nil {
+				uris = append(uris, u.String())
+			}
 		}
 
 		if d.webhookURL != "" {
