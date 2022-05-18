@@ -119,7 +119,7 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 			}
 		}
 
-		if d.webhookURL != "" {
+		if d.webhookURL != "" && len(uris) > 0 {
 			if err := d.callWebhook(ctx, uris); err != nil {
 				d.webhookRequestsTotalCounter.WithLabelValues("error").Inc()
 				level.Warn(d.l).Log("warn", "failed to call a webhook", "msg", err.Error())
