@@ -15,16 +15,15 @@ import (
 )
 
 type enqueuer[T any] struct {
-	q                     ingest.Queue
-	n                     ingest.Nexter[T]
-	l                     log.Logger
-	queueSubject          string
-	enqueueErrorCounter   prometheus.Counter
-	enqueueAttemptCounter prometheus.Counter
+	q                    ingest.Queue
+	n                    ingest.Nexter[T]
+	l                    log.Logger
+	queueSubject         string
+	enqueueAttemptsTotal *prometheus.CounterVec
 }
 
 // New creates new ingest.Enqueuer.
-func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
+func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
@@ -33,14 +32,11 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg pro
 		n:            n,
 		l:            l,
 		queueSubject: queueSubject,
-		enqueueErrorCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
-			Name: "enqueue_errors_total",
-			Help: "Number of errors occurred while importing items.",
-		}),
-		enqueueAttemptCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
-			Name: "enqueue_attempts_total",
-			Help: "Number of item import attempts.",
-		}),
+		enqueueAttemptsTotal: promauto.With(r).NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ingest_enqueue_attempts_total",
+				Help: "Number of enqueue sync attempts.",
+			}, []string{"result"}),
 	}, nil
 }
 
@@ -48,8 +44,6 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, reg pro
 // Note: Enqueue is not safe to call concurrently because it modifies the state
 // of a single, shared Nexter.
 func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
-	e.enqueueAttemptCounter.Inc()
-
 	err := e.n.Reset(ctx)
 	if err != nil {
 		return err
@@ -82,8 +76,10 @@ func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 		if err == io.EOF {
 			return nil
 		}
-		e.enqueueErrorCounter.Inc()
+		e.enqueueAttemptsTotal.WithLabelValues("error").Inc()
 		return err
 	}
+
+	e.enqueueAttemptsTotal.WithLabelValues("success").Inc()
 	return nil
 }

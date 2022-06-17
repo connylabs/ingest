@@ -24,20 +24,19 @@ import (
 )
 
 type dequeuer[T ingest.Identifiable] struct {
-	c                           ingest.Client[T]
-	s                           storage.Storage[T]
-	l                           log.Logger
-	r                           prometheus.Registerer
-	q                           ingest.Queue
-	cleanUp                     bool
-	webhookURL                  string
-	batchSize                   int
-	streamName                  string
-	consumerName                string
-	subjectName                 string
-	dequeuerErrorCounter        prometheus.Counter
-	dequeuerAttemptCounter      prometheus.Counter
-	webhookRequestsTotalCounter *prometheus.CounterVec
+	c                    ingest.Client[T]
+	s                    storage.Storage[T]
+	l                    log.Logger
+	r                    prometheus.Registerer
+	q                    ingest.Queue
+	cleanUp              bool
+	webhookURL           string
+	batchSize            int
+	streamName           string
+	consumerName         string
+	subjectName          string
+	dequeueAttemptsTotal *prometheus.CounterVec
+	webhookRequestsTotal *prometheus.CounterVec
 }
 
 // New creates a new ingest.Dequeuer.
@@ -58,17 +57,14 @@ func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage
 		consumerName: consumerName,
 		subjectName:  subjectName,
 
-		dequeuerErrorCounter: promauto.With(r).NewCounter(prometheus.CounterOpts{
-			Name: "dequeuer_errors_total",
-			Help: "Number of errors that occured while syncing items.",
-		}),
-		dequeuerAttemptCounter: promauto.With(r).NewCounter(prometheus.CounterOpts{
-			Name: "dequeuer_attempts_total",
-			Help: "Number of item sync attempts.",
-		}),
-		webhookRequestsTotalCounter: promauto.With(r).NewCounterVec(
+		dequeueAttemptsTotal: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "webhook_http_client_requests_total",
+				Name: "ingest_dequeue_attempts_total",
+				Help: "Number of dequeue sync attempts.",
+			}, []string{"result"}),
+		webhookRequestsTotal: promauto.With(r).NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ingest_webhook_http_client_requests_total",
 				Help: "The number webhook HTTP requests.",
 			}, []string{"result"}),
 	}
@@ -121,18 +117,16 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 
 		if d.webhookURL != "" && len(uris) > 0 {
 			if err := d.callWebhook(ctx, uris); err != nil {
-				d.webhookRequestsTotalCounter.WithLabelValues("error").Inc()
+				d.webhookRequestsTotal.WithLabelValues("error").Inc()
 				level.Warn(d.l).Log("warn", "failed to call a webhook", "msg", err.Error())
 				continue
 			}
-			d.webhookRequestsTotalCounter.WithLabelValues("success").Inc()
+			d.webhookRequestsTotal.WithLabelValues("success").Inc()
 		}
 	}
 }
 
 func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
-	d.dequeuerAttemptCounter.Inc()
-
 	var u *url.URL
 	operation := func() error {
 		_, err := d.s.Stat(ctx, job)
@@ -161,10 +155,11 @@ func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
 
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil {
-		d.dequeuerErrorCounter.Inc()
+		d.dequeueAttemptsTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
 
+	d.dequeueAttemptsTotal.WithLabelValues("success").Inc()
 	return u, nil
 }
 
