@@ -31,7 +31,7 @@ func New(url string, reg prometheus.Registerer) (ingest.Queue, error) {
 
 	queueInteractionsTotalCounter := promauto.With(reg).NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "queue_operations_total",
+			Name: "ingest_queue_operations_total",
 			Help: "The number of interactions with queue.",
 		}, []string{"operation", "result"})
 
