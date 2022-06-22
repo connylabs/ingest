@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -44,8 +44,16 @@ func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage
 	if l == nil {
 		l = log.NewNopLogger()
 	}
+	ic := &client[T]{
+		Client: c,
+		operationsTotal: promauto.With(r).NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ingest_operations_total",
+				Help: "Number of client operations",
+			}, []string{"operation", "result"}),
+	}
 	return &dequeuer[T]{
-		c:            c,
+		c:            ic,
 		s:            s,
 		l:            l,
 		r:            r,

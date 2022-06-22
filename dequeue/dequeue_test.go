@@ -9,10 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/connylabs/ingest/mocks"
 	"github.com/connylabs/ingest/storage"
@@ -82,6 +85,32 @@ func TestDequeue(t *testing.T) {
 		s.AssertExpectations(t)
 		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
+
+		{
+			ps, err := testutil.GatherAndLint(reg, "ingest_operations_total", "ingest_dequeue_attempts_total", "ingest_webhook_http_client_requests_total")
+			require.Nil(t, err)
+			for _, p := range ps {
+				t.Error(p)
+			}
+		}
+		{
+			c, err := testutil.GatherAndCount(reg, "ingest_operations_total")
+			require.Nil(t, err)
+			assert.Equal(t, 1, c)
+
+		}
+		{
+			c, err := testutil.GatherAndCount(reg, "ingest_dequeue_attempts_total")
+			require.Nil(t, err)
+			assert.Equal(t, 1, c)
+
+		}
+		{
+			c, err := testutil.GatherAndCount(reg, "ingest_webhook_http_client_requests_total")
+			require.Nil(t, err)
+			assert.Equal(t, 0, c, "ingest_webhook_http_client_requests_total")
+
+		}
 	})
 	t.Run("one object exists", func(t *testing.T) {
 		reg := prometheus.NewRegistry()

@@ -5,7 +5,6 @@ go 1.18
 require (
 	github.com/campoy/embedmd v1.0.0
 	github.com/cenkalti/backoff/v4 v4.1.2
-	github.com/go-kit/kit v0.12.0
 	github.com/go-kit/log v0.2.0
 	github.com/minio/minio-go/v7 v7.0.23
 	github.com/nats-io/nats.go v1.13.1-0.20220308171302-2f2f6968e98d
