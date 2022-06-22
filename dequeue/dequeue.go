@@ -48,7 +48,7 @@ func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage
 		Client: c,
 		operationsTotal: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "ingest_operations_total",
+				Name: "ingest_client_operations_total",
 				Help: "Number of client operations",
 			}, []string{"operation", "result"}),
 	}

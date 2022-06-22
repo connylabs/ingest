@@ -87,14 +87,14 @@ func TestDequeue(t *testing.T) {
 		c.AssertExpectations(t)
 
 		{
-			ps, err := testutil.GatherAndLint(reg, "ingest_operations_total", "ingest_dequeue_attempts_total", "ingest_webhook_http_client_requests_total")
+			ps, err := testutil.GatherAndLint(reg, "ingest_client_operations_total", "ingest_dequeue_attempts_total", "ingest_webhook_http_client_requests_total")
 			require.Nil(t, err)
 			for _, p := range ps {
 				t.Error(p)
 			}
 		}
 		{
-			c, err := testutil.GatherAndCount(reg, "ingest_operations_total")
+			c, err := testutil.GatherAndCount(reg, "ingest_client_operations_total")
 			require.Nil(t, err)
 			assert.Equal(t, 1, c)
 
