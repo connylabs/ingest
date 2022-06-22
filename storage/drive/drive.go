@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log"
 	"google.golang.org/api/drive/v3"
 
 	"github.com/connylabs/ingest"
