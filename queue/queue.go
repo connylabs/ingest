@@ -11,10 +11,10 @@ import (
 )
 
 type queue struct {
-	js                            nats.JetStreamContext
-	conn                          *nats.Conn
-	reg                           prometheus.Registerer
-	queueInteractionsTotalCounter *prometheus.CounterVec
+	js                          nats.JetStreamContext
+	conn                        *nats.Conn
+	reg                         prometheus.Registerer
+	queueOperationsTotalCounter *prometheus.CounterVec
 }
 
 // New is able to connect to the queue
@@ -29,13 +29,13 @@ func New(url string, reg prometheus.Registerer) (ingest.Queue, error) {
 		return &queue{conn: nil}, err
 	}
 
-	queueInteractionsTotalCounter := promauto.With(reg).NewCounterVec(
+	queueOperationsTotalCounter := promauto.With(reg).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ingest_queue_operations_total",
-			Help: "The number of interactions with queue.",
+			Help: "The total number of queue operations.",
 		}, []string{"operation", "result"})
 
-	return &queue{conn: conn, js: js, queueInteractionsTotalCounter: queueInteractionsTotalCounter}, nil
+	return &queue{conn: conn, js: js, queueOperationsTotalCounter: queueOperationsTotalCounter}, nil
 }
 
 // Close closes the connection to the queue.
@@ -48,10 +48,10 @@ func (qc *queue) Close(ctx context.Context) error {
 func (qc *queue) Publish(subject string, data []byte) error {
 	_, err := qc.js.Publish(subject, data)
 	if err != nil {
-		qc.queueInteractionsTotalCounter.WithLabelValues("publish", "error").Inc()
+		qc.queueOperationsTotalCounter.WithLabelValues("publish", "error").Inc()
 		return err
 	}
-	qc.queueInteractionsTotalCounter.WithLabelValues("publish", "success").Inc()
+	qc.queueOperationsTotalCounter.WithLabelValues("publish", "success").Inc()
 	return nil
 }
 
@@ -62,5 +62,5 @@ func (qc *queue) PullSubscribe(subject string, durable string, opts ...nats.SubO
 		return nil, err
 	}
 
-	return newSubscription(sub, qc.queueInteractionsTotalCounter), nil
+	return newSubscription(sub, qc.queueOperationsTotalCounter), nil
 }
