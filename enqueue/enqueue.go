@@ -44,6 +44,19 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, r prome
 // Note: Enqueue is not safe to call concurrently because it modifies the state
 // of a single, shared Nexter.
 func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
+	if err := e.enqueue(ctx); err != nil {
+		e.enqueueAttemptsTotal.WithLabelValues("error").Inc()
+		return err
+	}
+
+	e.enqueueAttemptsTotal.WithLabelValues("success").Inc()
+	return nil
+}
+
+// enqueue will add all of the objects that the Nexter will produce into the queue.
+// Note: Enqueue is not safe to call concurrently because it modifies the state
+// of a single, shared Nexter.
+func (e *enqueuer[Client]) enqueue(ctx context.Context) error {
 	err := e.n.Reset(ctx)
 	if err != nil {
 		return err
@@ -73,10 +86,8 @@ func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {
-		e.enqueueAttemptsTotal.WithLabelValues("error").Inc()
 		return err
 	}
 
-	e.enqueueAttemptsTotal.WithLabelValues("success").Inc()
 	return nil
 }
