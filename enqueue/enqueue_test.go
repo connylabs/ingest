@@ -10,8 +10,10 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/connylabs/ingest/mocks"
 )
@@ -92,6 +94,14 @@ func TestEnqueue(t *testing.T) {
 			}
 			n.AssertExpectations(t)
 			q.AssertExpectations(t)
+
+			lps, err := testutil.GatherAndLint(reg)
+			require.Nil(t, err)
+			assert.Empty(t, lps)
+
+			c, err := testutil.GatherAndCount(reg, "ingest_enqueue_attempts_total")
+			require.Nil(t, err)
+			assert.Equal(t, 1, c)
 		})
 	}
 	t.Run("failed to reset", func(t *testing.T) {
@@ -113,5 +123,8 @@ func TestEnqueue(t *testing.T) {
 
 		n.AssertExpectations(t)
 		q.AssertExpectations(t)
+		c, err := testutil.GatherAndCount(reg, "ingest_enqueue_attempts_total")
+		require.Nil(t, err)
+		assert.Equal(1, c)
 	})
 }
