@@ -72,10 +72,7 @@ func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 	}
 
 	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
-	if err := backoff.Retry(operation, bctx); err != nil {
-		if err == io.EOF {
-			return nil
-		}
+	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {
 		e.enqueueAttemptsTotal.WithLabelValues("error").Inc()
 		return err
 	}
