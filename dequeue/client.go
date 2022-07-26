@@ -8,13 +8,14 @@ import (
 	"github.com/connylabs/ingest"
 )
 
-type client[T ingest.Identifiable] struct {
-	ingest.Client[T]
+// client is an instrumented client that can wrap any ingest.Client.
+type client struct {
+	ingest.Client
 	operationsTotal *prometheus.CounterVec
 }
 
-func (c *client[T]) Download(ctx context.Context, t T) (o ingest.Object, err error) {
-	o, err = c.Client.Download(ctx, t)
+func (c *client) Download(ctx context.Context, item ingest.Identifiable) (o ingest.Object, err error) {
+	o, err = c.Client.Download(ctx, item)
 	if err != nil {
 		c.operationsTotal.WithLabelValues("download", "error").Inc()
 		return
@@ -23,8 +24,8 @@ func (c *client[T]) Download(ctx context.Context, t T) (o ingest.Object, err err
 	return
 }
 
-func (c *client[T]) CleanUp(ctx context.Context, t T) (err error) {
-	err = c.Client.CleanUp(ctx, t)
+func (c *client) CleanUp(ctx context.Context, item ingest.Identifiable) (err error) {
+	err = c.Client.CleanUp(ctx, item)
 	if err != nil {
 		c.operationsTotal.WithLabelValues("cleanup", "error").Inc()
 		return

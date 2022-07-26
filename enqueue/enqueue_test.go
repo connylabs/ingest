@@ -2,7 +2,6 @@ package enqueue
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/mocks"
 )
 
@@ -47,7 +47,7 @@ func TestEnqueue(t *testing.T) {
 			name: "one entry",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
 				t := &mocks.T{MockID: "foo"}
-				data, _ := json.Marshal(t)
+				data, _ := ingest.NewCodec(t).Marshal()
 				q := new(mocks.Queue)
 				q.On("Publish", "sub", data).Return(nil).Once()
 				n := new(mocks.Nexter)
@@ -61,9 +61,9 @@ func TestEnqueue(t *testing.T) {
 			name: "two entries",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
 				t := &mocks.T{MockID: "foo"}
-				data, _ := json.Marshal(t)
+				data, _ := ingest.NewCodec(t).Marshal()
 				t2 := &mocks.T{MockID: "foo2"}
-				data2, _ := json.Marshal(t2)
+				data2, _ := ingest.NewCodec(t2).Marshal()
 				q := new(mocks.Queue)
 				q.
 					On("Publish", "sub", data).Return(nil).Once().
@@ -85,7 +85,7 @@ func TestEnqueue(t *testing.T) {
 
 			q, n, _ := tc.expect()
 
-			e, err := New[mocks.T](n, "sub", q, reg, logger)
+			e, err := New(n, "sub", q, reg, logger)
 			if err != nil {
 				t.Error(err)
 			}
@@ -115,7 +115,7 @@ func TestEnqueue(t *testing.T) {
 		eerr := errors.New("some error")
 		n.On("Reset", mock.Anything).Return(eerr).Once()
 
-		e, err := New[mocks.T](n, "sub", q, reg, logger)
+		e, err := New(n, "sub", q, reg, logger)
 		if err != nil {
 			t.Error(err)
 		}

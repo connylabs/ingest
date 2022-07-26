@@ -16,9 +16,9 @@ import (
 func TestStore(t *testing.T) {
 	t.Run("using meta objects", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
@@ -26,10 +26,10 @@ func TestStore(t *testing.T) {
 		obj.On("Len").Return(int64(64)).Once()
 		obj.On("MimeType").Return("plain/text").Once()
 
-		mc.On("PutObject", mock.Anything, "bucket", "prefix/foo", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once().
-			On("PutObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
+		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once().
+			On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "meta", mc, logger)
+		s := New("bucket", "prefix", "meta", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -38,7 +38,7 @@ func TestStore(t *testing.T) {
 			t.Error(err)
 		}
 
-		key := "s3://bucket/prefix/foo"
+		key := "s3://bucket/prefix/bar"
 		if u.String() != key {
 			t.Errorf("expected %q, got %q", key, u.String())
 		}
@@ -49,9 +49,9 @@ func TestStore(t *testing.T) {
 	})
 	t.Run("not using meta objects", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
@@ -59,9 +59,9 @@ func TestStore(t *testing.T) {
 		obj.On("Len").Return(int64(64)).Once()
 		obj.On("MimeType").Return("plain/text").Once()
 
-		mc.On("PutObject", mock.Anything, "bucket", "prefix/foo", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
+		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "", mc, logger)
+		s := New("bucket", "prefix", "", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -70,7 +70,7 @@ func TestStore(t *testing.T) {
 			t.Error(err)
 		}
 
-		key := "s3://bucket/prefix/foo"
+		key := "s3://bucket/prefix/bar"
 		if u.String() != key {
 			t.Errorf("expected %q, got %q", key, u.String())
 		}
@@ -84,15 +84,15 @@ func TestStore(t *testing.T) {
 func TestStat(t *testing.T) {
 	t.Run("no object, no meta object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
-		mc.On("StatObject", mock.Anything, "bucket", "prefix/foo", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
-			On("StatObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
+			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "meta", mc, logger)
+		s := New("bucket", "prefix", "meta", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -111,16 +111,16 @@ func TestStat(t *testing.T) {
 	})
 	t.Run("object, no meta object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
-		mc.On("PutObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
-		mc.On("StatObject", mock.Anything, "bucket", "prefix/foo", mock.Anything).Return(minio.ObjectInfo{}, nil).Once().
-			On("StatObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
+		mc.On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once().
+			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "meta", mc, logger)
+		s := New("bucket", "prefix", "meta", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -129,7 +129,7 @@ func TestStat(t *testing.T) {
 			t.Error(err)
 		}
 
-		key := "s3://bucket/prefix/foo"
+		key := "s3://bucket/prefix/bar"
 		if o.URI != key {
 			t.Errorf("expected %q, got %q", key, o.URI)
 		}
@@ -140,14 +140,14 @@ func TestStat(t *testing.T) {
 	})
 	t.Run("no object, meta object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
-		mc.On("StatObject", mock.Anything, "bucket", "meta/foo.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "meta", mc, logger)
+		s := New("bucket", "prefix", "meta", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -156,7 +156,7 @@ func TestStat(t *testing.T) {
 			t.Error(err)
 		}
 
-		key := "s3://bucket/prefix/foo"
+		key := "s3://bucket/prefix/bar"
 		if o.URI != key {
 			t.Errorf("expected %q, got %q", key, o.URI)
 		}
@@ -167,14 +167,14 @@ func TestStat(t *testing.T) {
 	})
 	t.Run("object exists", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
-		mc.On("StatObject", mock.Anything, "bucket", "prefix/foo", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "", mc, logger)
+		s := New("bucket", "prefix", "", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -183,7 +183,7 @@ func TestStat(t *testing.T) {
 			t.Error(err)
 		}
 
-		key := "s3://bucket/prefix/foo"
+		key := "s3://bucket/prefix/bar"
 		if o.URI != key {
 			t.Errorf("expected %q, got %q", key, o.URI)
 		}
@@ -194,14 +194,14 @@ func TestStat(t *testing.T) {
 	})
 	t.Run("no object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo"}
+		_t := &mocks.T{MockID: "foo", MockName: "bar"}
 		obj := new(mocks.Object)
 
-		mc.On("StatObject", mock.Anything, "bucket", "prefix/foo", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New[*mocks.T]("bucket", "prefix", "", mc, logger)
+		s := New("bucket", "prefix", "", mc, logger)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()

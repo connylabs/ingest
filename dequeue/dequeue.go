@@ -23,9 +23,9 @@ import (
 	"github.com/connylabs/ingest/storage"
 )
 
-type dequeuer[T ingest.Identifiable] struct {
-	c                    ingest.Client[T]
-	s                    storage.Storage[T]
+type dequeuer struct {
+	c                    ingest.Client
+	s                    storage.Storage
 	l                    log.Logger
 	r                    prometheus.Registerer
 	q                    ingest.Queue
@@ -40,11 +40,11 @@ type dequeuer[T ingest.Identifiable] struct {
 }
 
 // New creates a new ingest.Dequeuer.
-func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage.Storage[T], q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer) ingest.Dequeuer {
+func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer) ingest.Dequeuer {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
-	ic := &client[T]{
+	ic := &client{
 		Client: c,
 		operationsTotal: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{
@@ -52,7 +52,7 @@ func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage
 				Help: "Number of client operations",
 			}, []string{"operation", "result"}),
 	}
-	return &dequeuer[T]{
+	return &dequeuer{
 		c:            ic,
 		s:            s,
 		l:            l,
@@ -78,7 +78,7 @@ func New[T ingest.Identifiable](webhookURL string, c ingest.Client[T], s storage
 	}
 }
 
-func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
+func (d *dequeuer) Dequeue(ctx context.Context) error {
 	sub, err := d.q.PullSubscribe(d.subjectName, d.consumerName, nats.Bind(d.streamName, d.consumerName))
 	if err != nil {
 		return err
@@ -102,22 +102,25 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 
 		uris := make([]string, 0, d.batchSize)
 		for _, raw := range msgs {
-			var job T
-			if err := json.Unmarshal(raw.Data, &job); err != nil {
+			//item, ok := any((*new(T))).(ingest.Codec)
+			//if !ok {
+			item := new(ingest.SimpleCodec)
+			//}
+			if err := item.Unmarshal(raw.Data); err != nil {
 				level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 				continue
 			}
-			u, err := d.process(ctx, job)
+			u, err := d.process(ctx, item)
 			if err != nil {
 				level.Error(d.l).Log("msg", "failed to process message", "err", err.Error())
 				continue
 			}
-			level.Info(d.l).Log("msg", "successfully processed message", "data", job)
+			level.Info(d.l).Log("msg", "successfully processed message", "data", string(raw.Data))
 			if err := raw.AckSync(); err != nil {
 				level.Error(d.l).Log("msg", "failed to ack message", "err", err.Error())
 				continue
 			}
-			level.Debug(d.l).Log("msg", "acked message", "data", job)
+			level.Debug(d.l).Log("msg", "acked message", "data", string(raw.Data))
 			if u != nil {
 				uris = append(uris, u.String())
 			}
@@ -134,13 +137,13 @@ func (d *dequeuer[T]) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
+func (d *dequeuer) process(ctx context.Context, item ingest.Identifiable) (*url.URL, error) {
 	var u *url.URL
 	operation := func() error {
-		_, err := d.s.Stat(ctx, job)
+		_, err := d.s.Stat(ctx, item)
 		if err == nil {
 			if d.cleanUp {
-				return d.c.CleanUp(ctx, job)
+				return d.c.CleanUp(ctx, item)
 			}
 
 			return nil
@@ -149,13 +152,13 @@ func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
 			return err
 		}
 
-		u, err = d.s.Store(ctx, job, d.c.Download)
+		u, err = d.s.Store(ctx, item, d.c.Download)
 		if err != nil {
 			return err
 		}
 
 		if d.cleanUp {
-			return d.c.CleanUp(ctx, job)
+			return d.c.CleanUp(ctx, item)
 		}
 
 		return nil
@@ -171,7 +174,7 @@ func (d *dequeuer[T]) process(ctx context.Context, job T) (*url.URL, error) {
 	return u, nil
 }
 
-func (d *dequeuer[Client]) callWebhook(ctx context.Context, data []string) error {
+func (d *dequeuer) callWebhook(ctx context.Context, data []string) error {
 	requestData, err := json.Marshal(data)
 	if err != nil {
 		return err

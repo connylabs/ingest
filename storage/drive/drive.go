@@ -16,19 +16,19 @@ import (
 	"github.com/connylabs/ingest/storage"
 )
 
-type driveStorage[T ingest.Identifiable] struct {
+type driveStorage struct {
 	s *drive.Service
 	l log.Logger
 	p string
 }
 
 // New returns a new Storage that can store objects to Google Drive.
-func New[T ingest.Identifiable](folder string, service *drive.Service, l log.Logger) (storage.Storage[T], error) {
+func New(folder string, service *drive.Service, l log.Logger) (storage.Storage, error) {
 	parts := strings.Split(folder, "/")
 	if len(parts) < 1 {
 		return nil, errors.New("no folder was specified")
 	}
-	ds := &driveStorage[T]{s: service, l: l}
+	ds := &driveStorage{s: service, l: l}
 	f, err := ds.find(context.Background(), "", parts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find folder: %w", err)
@@ -37,8 +37,8 @@ func New[T ingest.Identifiable](folder string, service *drive.Service, l log.Log
 	return ds, nil
 }
 
-func (ds *driveStorage[T]) Stat(ctx context.Context, element T) (*storage.ObjectInfo, error) {
-	f, err := ds.find(ctx, ds.p, []string{element.ID()})
+func (ds *driveStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
+	f, err := ds.find(ctx, ds.p, []string{element.Name()})
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (ds *driveStorage[T]) Stat(ctx context.Context, element T) (*storage.Object
 }
 
 // find is a helper that will recursively look for a file matching the given hierarchy.
-func (ds *driveStorage[T]) find(ctx context.Context, parent string, parts []string) (*drive.File, error) {
+func (ds *driveStorage) find(ctx context.Context, parent string, parts []string) (*drive.File, error) {
 	query := fmt.Sprintf("name = '%s' and trashed=false", parts[0])
 	if parent != "" {
 		query += fmt.Sprintf(" and '%s' in parents", parent)
@@ -75,15 +75,15 @@ func (ds *driveStorage[T]) find(ctx context.Context, parent string, parts []stri
 	return nil, fs.ErrNotExist
 }
 
-func (ds *driveStorage[T]) Store(ctx context.Context, element T, download func(context.Context, T) (ingest.Object, error)) (*url.URL, error) {
+func (ds *driveStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
 	file := &drive.File{
-		Name:    element.ID(),
+		Name:    element.Name(),
 		Parents: []string{ds.p},
 	}
 
 	object, err := download(ctx, element)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get message %s: %w", element.ID(), err)
+		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
 	}
 
 	f, err := ds.s.Files.Create(file).Media(object).Context(ctx).Do()

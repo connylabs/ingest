@@ -1,19 +1,91 @@
-.PHONY: fmt lint lint-go gen-mock
+.PHONY: build e2e e2e-setup e2e-teardown fmt lint lint-go gen-mock vendor
 
+OS ?= $(shell go env GOOS)
+ARCH ?= $(shell go env GOARCH)
 BIN_DIR := bin
+PLUGIN_DIR := $(BIN_DIR)/plugin
+BINS := $(BIN_DIR)/$(OS)/$(ARCH)/ingest
+PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive)
 PROJECT := ingest
-PKG := github.com/connylabs/$(PROJECT)
+PKG := github.com/mietright/$(PROJECT)
 
+TAG := $(shell git describe --abbrev=0 --tags HEAD 2>/dev/null)
+COMMIT := $(shell git rev-parse HEAD)
+VERSION := $(COMMIT)
+ifneq ($(TAG),)
+    ifeq ($(COMMIT), $(shell git rev-list -n1 $(TAG)))
+        VERSION := $(TAG)
+    endif
+endif
+DIRTY := $(shell test -z "$$(git diff --shortstat 2>/dev/null)" || echo -dirty)
+VERSION := $(VERSION)$(DIRTY)
+LD_FLAGS := -ldflags "-s -w -X $(PKG)/version.Version=$(VERSION)"
+SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
-SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd
 GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
 MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
+NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
+MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
+BASH_UNIT := $(shell pwd)/bin/bash_unit
+
+BUILD_IMAGE ?= golang:1.18.0
+CONTAINERIZE_BUILD ?= true
+BUILD_PREFIX :=
+BUILD_SUFIX :=
+ifeq ($(CONTAINERIZE_BUILD), true)
+	BUILD_PREFIX := docker run --rm \
+	    -u $$(id -u):$$(id -g) \
+	    -v $$(pwd):/$(PROJECT) \
+	    -w /$(PROJECT) \
+	    $(BUILD_IMAGE) \
+	    /bin/sh -c '
+	BUILD_SUFIX := '
+endif
+
+E2E_SETUP ?= true
+E2E_PREFIX :=
+E2E_SUFIX :=
+ifeq ($(E2E_SETUP), true)
+	E2E_PREFIX := ./e2e/setup.sh
+	E2E_SUFIX := ./e2e/teardown.sh
+endif
+
+build: $(BINS) $(PLUGINS)
+
+$(BINS): $(SRC) go.mod
+	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))
+	@echo "building: $@"
+	@$(BUILD_PREFIX) \
+	        GOARCH=$(word 3,$(subst /, ,$@)) \
+	        GOOS=$(word 2,$(subst /, ,$@)) \
+	        GOCACHE=$$(pwd)/.cache \
+		CGO_ENABLED=1 \
+		go build -mod=vendor -o $@ \
+		    $(LD_FLAGS) \
+		    ./cmd/$(@F) \
+	$(BUILD_SUFIX)
 
 $(BIN_DIR):
-	mkdir -p bin
+	mkdir -p $(BIN_DIR)
+
+$(PLUGINS): $(SRC) go.mod
+	@mkdir -p $(PLUGIN_DIR)/$(word 3,$(subst /, ,$@))/$(word 4,$(subst /, ,$@))
+	@echo "building: $@"
+	@$(BUILD_PREFIX) \
+	        GOARCH=$(word 4,$(subst /, ,$@)) \
+	        GOOS=$(word 3,$(subst /, ,$@)) \
+	        GOCACHE=$$(pwd)/.cache \
+		CGO_ENABLED=1 \
+		go build -buildmode=plugin -mod=vendor -o $@ \
+		    $(LD_FLAGS) \
+		    ./plugins/$(@F) \
+	$(BUILD_SUFIX)
+
+$(PLUGIN_DIR):
+	mkdir -p $(PLUGIN_DIR)
 
 README.md: $(EMBEDMD_BINARY) ingest.go
 	$(EMBEDMD_BINARY) -w $@
@@ -83,8 +155,36 @@ lint-go: $(GOLINT_BINARY)
 	fi
 
 
+e2e/jetstream: $(NATS_BINARY)
+	rm -rf S@
+	mkdir -p e2e
+	$(NATS_BINARY) backup -s nats://127.0.0.1:4222 e2e/jetstream
+
+e2e-setup: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
+	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) ./e2e/setup.sh
+
+e2e-teardown: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
+	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) ./e2e/teardown.sh
+
+e2e: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(PLUGINS) $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
+	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) $(E2E_PREFIX) ./e2e/ingest.sh $(E2E_SUFIX)
+
+vendor:
+	go mod tidy
+	go mod vendor
+
+$(BASH_UNIT): | $(BIN_DIR)
+	curl -Lo $@ https://raw.githubusercontent.com/pgrange/bash_unit/v1.7.2/bash_unit
+	chmod +x $@
+
 $(GOLINT_BINARY): | $(BIN_DIR)
-	go build -o $@ golang.org/x/lint/golint
+	go build -mod=vendor -o $@ golang.org/x/lint/golint
+
+$(NATS_BINARY): | $(BIN_DIR)
+	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats
+
+$(MINIO_CLIENT_BINARY): | $(BIN_DIR)
+	go build -mod=vendor -o $@ github.com/minio/mc
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/vektra/mockery/v2
