@@ -24,7 +24,7 @@ type MinioClient interface {
 	StatObject(context.Context, string, string, minio.StatObjectOptions) (minio.ObjectInfo, error)
 }
 
-type minioStorage[T ingest.Identifiable] struct {
+type minioStorage struct {
 	bucket          string
 	mc              MinioClient
 	l               log.Logger
@@ -34,8 +34,8 @@ type minioStorage[T ingest.Identifiable] struct {
 }
 
 // New returns a new Storage that can store objects to S3.
-func New[T ingest.Identifiable](bucket string, prefix string, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage[T] {
-	return &minioStorage[T]{
+func New(bucket string, prefix string, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage {
+	return &minioStorage{
 		bucket:          bucket,
 		mc:              mc,
 		l:               l,
@@ -45,8 +45,8 @@ func New[T ingest.Identifiable](bucket string, prefix string, metafilesPrefix st
 	}
 }
 
-func (ms *minioStorage[T]) Stat(ctx context.Context, element T) (*storage.ObjectInfo, error) {
-	synced, done, err := ms.isObjectSynced(ctx, element.ID(), ms.useDone)
+func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
+	synced, done, err := ms.isObjectSynced(ctx, element.Name(), ms.useDone)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (ms *minioStorage[T]) Stat(ctx context.Context, element T) (*storage.Object
 	// If the file exists but the done file does not,
 	// let's patch this up.
 	if !done && ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create missing meta object for existing file: %w", err)
 		}
 	}
@@ -66,12 +66,12 @@ func (ms *minioStorage[T]) Stat(ctx context.Context, element T) (*storage.Object
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage[T]) Store(ctx context.Context, element T, download func(context.Context, T) (ingest.Object, error)) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
 	u := ms.url(element)
 
 	object, err := download(ctx, element)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get message %s: %w", element.ID(), err)
+		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
 	}
 
 	if _, err := ms.mc.PutObject(
@@ -86,7 +86,7 @@ func (ms *minioStorage[T]) Store(ctx context.Context, element T, download func(c
 	}
 
 	if ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.ID())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create matching meta object for uploaded file: %w", err)
 		}
 	}
@@ -94,15 +94,15 @@ func (ms *minioStorage[T]) Store(ctx context.Context, element T, download func(c
 	return u, nil
 }
 
-func (ms *minioStorage[T]) url(element T) *url.URL {
+func (ms *minioStorage) url(element ingest.Identifiable) *url.URL {
 	return &url.URL{
 		Scheme: "s3",
 		Host:   ms.bucket,
-		Path:   path.Join(ms.prefix, element.ID()),
+		Path:   path.Join(ms.prefix, element.Name()),
 	}
 }
 
-func (ms *minioStorage[T]) isObjectSynced(ctx context.Context, name string, checkDone bool) (bool, bool, error) {
+func (ms *minioStorage) isObjectSynced(ctx context.Context, name string, checkDone bool) (bool, bool, error) {
 	nameToCheck := path.Join(ms.prefix, name)
 	if checkDone {
 		nameToCheck = path.Join(ms.metafilesPrefix, doneKey(name))

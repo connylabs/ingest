@@ -2,7 +2,6 @@ package enqueue
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 
 	"github.com/cenkalti/backoff/v4"
@@ -14,20 +13,20 @@ import (
 	"github.com/connylabs/ingest"
 )
 
-type enqueuer[T any] struct {
+type enqueuer struct {
 	q                    ingest.Queue
-	n                    ingest.Nexter[T]
+	n                    ingest.Nexter
 	l                    log.Logger
 	queueSubject         string
 	enqueueAttemptsTotal *prometheus.CounterVec
 }
 
 // New creates new ingest.Enqueuer.
-func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
+func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
-	return &enqueuer[T]{
+	return &enqueuer{
 		q:            q,
 		n:            n,
 		l:            l,
@@ -43,7 +42,7 @@ func New[T any](n ingest.Nexter[T], queueSubject string, q ingest.Queue, r prome
 // Enqueue will add all of the objects that the Nexter will produce into the queue.
 // Note: Enqueue is not safe to call concurrently because it modifies the state
 // of a single, shared Nexter.
-func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
+func (e *enqueuer) Enqueue(ctx context.Context) error {
 	if err := e.enqueue(ctx); err != nil {
 		e.enqueueAttemptsTotal.WithLabelValues("error").Inc()
 		return err
@@ -56,7 +55,7 @@ func (e *enqueuer[Client]) Enqueue(ctx context.Context) error {
 // enqueue will add all of the objects that the Nexter will produce into the queue.
 // Note: Enqueue is not safe to call concurrently because it modifies the state
 // of a single, shared Nexter.
-func (e *enqueuer[Client]) enqueue(ctx context.Context) error {
+func (e *enqueuer) enqueue(ctx context.Context) error {
 	err := e.n.Reset(ctx)
 	if err != nil {
 		return err
@@ -71,9 +70,13 @@ func (e *enqueuer[Client]) enqueue(ctx context.Context) error {
 				level.Warn(e.l).Log("msg", "failed to get next item", "err", err.Error())
 				return err
 			}
-			data, err := json.Marshal(item)
+			codec, ok := any(item).(ingest.Codec)
+			if !ok {
+				codec = &ingest.SimpleCodec{XID: item.ID(), XName: item.Name()}
+			}
+			data, err := codec.Marshal()
 			if err != nil {
-				level.Warn(e.l).Log("msg", "failed to unmarshal retrieved item", "err", err.Error())
+				level.Warn(e.l).Log("msg", "failed to marshal retrieved item", "err", err.Error())
 				return err
 			}
 

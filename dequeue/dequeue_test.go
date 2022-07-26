@@ -2,7 +2,6 @@ package dequeue
 
 import (
 	"context"
-	"encoding/json"
 	"io/fs"
 	"net/url"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/mocks"
 	"github.com/connylabs/ingest/storage"
 )
@@ -25,9 +25,9 @@ func TestDequeue(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		q := new(mocks.Queue)
-		s := new(mocks.Storage[*mocks.T])
+		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
@@ -37,7 +37,7 @@ func TestDequeue(t *testing.T) {
 
 		sub.On("Close").Return(nil).Once()
 
-		d := New[*mocks.T]("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -52,12 +52,12 @@ func TestDequeue(t *testing.T) {
 	t.Run("one object", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		q := new(mocks.Queue)
-		s := new(mocks.Storage[*mocks.T])
+		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
 		_t := &mocks.T{MockID: "foo"}
-		data, _ := json.Marshal(_t)
+		data, _ := ingest.NewCodec(_t).Marshal()
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)
 
@@ -69,10 +69,10 @@ func TestDequeue(t *testing.T) {
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 
-		s.On("Stat", mock.Anything, _t).Return((*storage.ObjectInfo)(nil), fs.ErrNotExist).Once()
-		s.On("Store", mock.Anything, _t, mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
+		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), fs.ErrNotExist).Once()
+		s.On("Store", mock.Anything, ingest.NewCodec(_t), mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
 
-		d := New[*mocks.T]("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -115,12 +115,12 @@ func TestDequeue(t *testing.T) {
 	t.Run("one object exists", func(t *testing.T) {
 		reg := prometheus.NewRegistry()
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client[*mocks.T])
+		c := new(mocks.Client)
 		q := new(mocks.Queue)
-		s := new(mocks.Storage[*mocks.T])
+		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
 		_t := &mocks.T{MockID: "foo"}
-		data, _ := json.Marshal(_t)
+		data, _ := ingest.NewCodec(_t).Marshal()
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)
 
@@ -132,9 +132,9 @@ func TestDequeue(t *testing.T) {
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 
-		s.On("Stat", mock.Anything, _t).Return((*storage.ObjectInfo)(nil), nil).Once()
+		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), nil).Once()
 
-		d := New[*mocks.T]("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()

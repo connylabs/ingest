@@ -12,17 +12,23 @@ import (
 
 var (
 	_ ingest.Identifiable = &T{}
-	_ ingest.Nexter[T]    = &Nexter{}
+	_ ingest.Nexter       = &Nexter{}
 )
 
 // T is a mock.
 type T struct {
-	MockID string
+	MockID   string
+	MockName string
 }
 
 // ID returns the ID of T.
-func (t *T) ID() string {
+func (t T) ID() string {
 	return t.MockID
+}
+
+// Name returns the Name of T.
+func (t T) Name() string {
+	return t.MockName
 }
 
 // Nexter is a mock type for the Nexter type
@@ -45,11 +51,11 @@ func (n *Nexter) Reset(ctx context.Context) error {
 }
 
 // Next is a mock function.
-func (n *Nexter) Next(ctx context.Context) (*T, error) {
+func (n *Nexter) Next(ctx context.Context) (ingest.Identifiable, error) {
 	ret := n.Called(ctx)
 
-	t := &T{}
-	if rf, ok := ret.Get(0).(func(context.Context) *T); ok {
+	var t ingest.Identifiable
+	if rf, ok := ret.Get(0).(func(context.Context) ingest.Identifiable); ok {
 		t = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {

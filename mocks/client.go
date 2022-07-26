@@ -10,26 +10,26 @@ import (
 	"github.com/connylabs/ingest"
 )
 
-var _ ingest.Client[*T] = &Client[*T]{}
+var _ ingest.Client = &Client{}
 
 // Client is a mock
-type Client[T ingest.Identifiable] struct {
+type Client struct {
 	mock.Mock
 }
 
 // Download is a mock function.
-func (_m *Client[T]) Download(ctx context.Context, t T) (ingest.Object, error) {
+func (_m *Client) Download(ctx context.Context, t ingest.Identifiable) (ingest.Object, error) {
 	ret := _m.Called(ctx, t)
 
 	var obj *Object
-	if rf, ok := ret.Get(0).(func(context.Context, T) Object); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Identifiable) Object); ok {
 		*obj = rf(ctx, t)
 	} else {
 		obj = ret.Get(0).(*Object)
 	}
 
 	var err error
-	if rf, ok := ret.Get(1).(func(context.Context, T) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.Identifiable) error); ok {
 		err = rf(ctx, t)
 	} else {
 		err = ret.Error(1)
@@ -38,11 +38,11 @@ func (_m *Client[T]) Download(ctx context.Context, t T) (ingest.Object, error) {
 }
 
 // CleanUp is a mock function.
-func (_m *Client[T]) CleanUp(ctx context.Context, t T) error {
+func (_m *Client) CleanUp(ctx context.Context, t ingest.Identifiable) error {
 	ret := _m.Called(ctx, t)
 
 	var err error
-	if rf, ok := ret.Get(0).(func(context.Context, T) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Identifiable) error); ok {
 		err = rf(ctx, t)
 	} else {
 		err = ret.Error(0)
