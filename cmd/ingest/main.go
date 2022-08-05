@@ -2,37 +2,30 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	stdlog "log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	stdplugin "plugin"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/ghodss/yaml"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/metalmatze/signal/healthcheck"
 	"github.com/metalmatze/signal/internalserver"
-	"github.com/mitchellh/mapstructure"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
-	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/cmd"
+	"github.com/connylabs/ingest/config"
 	"github.com/connylabs/ingest/dequeue"
 	"github.com/connylabs/ingest/enqueue"
-	"github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/queue"
 	"github.com/connylabs/ingest/storage"
 	"github.com/connylabs/ingest/version"
@@ -66,8 +59,6 @@ var availableModes = strings.Join([]string{
 	enqueueMode,
 }, ", ")
 
-var defaultInterval = 5 * time.Minute
-
 func main() {
 	if err := Main(); err != nil {
 		fmt.Println(err.Error())
@@ -87,56 +78,6 @@ type flags struct {
 	help            *bool
 	pluginDirectory *string
 	configPath      *string
-}
-
-// Source is used to configure source plugins in the ingest configuration.
-type Source struct {
-	Name   string
-	Type   string
-	Config map[string]interface{} `json:"-" mapstructure:",remain"`
-}
-
-// UnmarshalJSON allows the source configuration to collect all unknown fields into the `Config` field.
-func (s *Source) UnmarshalJSON(b []byte) error {
-	raw := make(map[string]interface{})
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	return mapstructure.Decode(raw, s)
-}
-
-// Destination is used to configure destination plugins in the ingest configuration.
-type Destination struct {
-	Name   string
-	Type   string
-	Config map[string]interface{} `json:"-" mapstructure:",remain"`
-}
-
-// UnmarshalJSON allows the destination configuration to collect all unknown fields into the `Config` field.
-func (d *Destination) UnmarshalJSON(b []byte) error {
-	raw := make(map[string]interface{})
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	return mapstructure.Decode(raw, d)
-}
-
-// Workflow is used to configure ingestion pipelines between sources and destinations in the ingest configuration.
-type Workflow struct {
-	Name         string
-	Source       string
-	Destinations []string
-	CleanUp      bool
-	Interval     *time.Duration
-	BatchSize    int
-	Webhook      string
-}
-
-type config struct {
-	Version      string
-	Sources      []Source
-	Destinations []Destination
-	Workflows    []Workflow
 }
 
 // Main is a convenience function that serves as a main that can return an error.
@@ -193,20 +134,15 @@ func Main() error {
 		return nil
 	}
 
-	c := new(config)
-	f, err := ioutil.ReadFile(*appFlags.configPath)
+	c, err := config.NewFromPath(*appFlags.configPath)
 	if err != nil {
-		return fmt.Errorf("cannot read tenant configuration file from path %q: %w", *appFlags.configPath, err)
-	}
-
-	if err := yaml.Unmarshal(f, c); err != nil {
-		return fmt.Errorf("unable to read configuration YAML: %w", err)
+		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sources, destinations, err := configurePlugins(ctx, *appFlags.pluginDirectory, c)
+	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
 	if err != nil {
 		return err
 	}
@@ -321,91 +257,4 @@ func Main() error {
 	}
 
 	return g.Run()
-}
-
-func configurePlugins(ctx context.Context, path string, c *config) (map[string]plugin.Source, map[string]plugin.Destination, error) {
-	// Collect all of the named plugins.
-	plugins := make(map[string]plugin.Plugin)
-	sources := make(map[string]plugin.Source)
-	destinations := make(map[string]plugin.Destination)
-	pluginNames := make(map[string]struct{})
-	sourceNames := make(map[string]struct{})
-	destinationNames := make(map[string]struct{})
-	workflowNames := make(map[string]struct{})
-	// Validate the sources.
-	for _, s := range c.Sources {
-		pluginNames[s.Type] = struct{}{}
-		if _, ok := sourceNames[s.Name]; ok {
-			return nil, nil, fmt.Errorf("found duplicate source %q", s.Name)
-		}
-		sourceNames[s.Name] = struct{}{}
-	}
-	// Validate the destinations.
-	for _, d := range c.Destinations {
-		pluginNames[d.Type] = struct{}{}
-		if _, ok := destinationNames[d.Name]; ok {
-			return nil, nil, fmt.Errorf("found duplicate destination %q", d.Name)
-		}
-		destinationNames[d.Name] = struct{}{}
-	}
-	// Validate the workflows.
-	for i, w := range c.Workflows {
-		if _, ok := workflowNames[w.Name]; ok {
-			return nil, nil, fmt.Errorf("found duplicate workflow %q", w.Name)
-		}
-		workflowNames[w.Name] = struct{}{}
-		if _, ok := sourceNames[w.Source]; !ok {
-			return nil, nil, fmt.Errorf("workflow %q references non-existent source %q", w.Name, w.Source)
-		}
-		for _, d := range w.Destinations {
-			if _, ok := destinationNames[d]; !ok {
-				return nil, nil, fmt.Errorf("workflow %q references non-existent destination %q", w.Name, d)
-			}
-		}
-		if w.Interval == nil {
-			c.Workflows[i].Interval = &defaultInterval
-		}
-		if w.BatchSize == 0 {
-			c.Workflows[i].BatchSize = ingest.DefaultBatchSize
-		}
-	}
-	// Instantiate the plugins.
-	for pn := range pluginNames {
-		raw, err := stdplugin.Open(filepath.Join(path, pn))
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not open plugin %q: %w", pn, err)
-		}
-		r, err := raw.Lookup("Register")
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not find symbol in plugin %q: %w", pn, err)
-		}
-		p, err := (*r.(*plugin.Register))()
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not register plugin %q: %w", pn, err)
-		}
-		plugins[pn] = p
-	}
-	// Instantiate the sources.
-	for i := range c.Sources {
-		s, err := plugins[c.Sources[i].Type].NewSource(ctx, c.Sources[i].Config)
-		if errors.Is(err, plugin.ErrNotImplemented) {
-			return nil, nil, fmt.Errorf("cannot instantiate source %q: plugin %q does not support acting as a source", c.Sources[i].Name, c.Sources[i].Type)
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", c.Sources[i].Name, err)
-		}
-		sources[c.Sources[i].Name] = s
-	}
-	// Instantiate the destinations.
-	for i := range c.Destinations {
-		d, err := plugins[c.Destinations[i].Type].NewDestination(ctx, c.Destinations[i].Config)
-		if errors.Is(err, plugin.ErrNotImplemented) {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: plugin %q does not support acting as a destination", c.Destinations[i].Name, c.Destinations[i].Type)
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
-		}
-		destinations[c.Destinations[i].Name] = d
-	}
-	return sources, destinations, nil
 }
