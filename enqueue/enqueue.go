@@ -26,6 +26,7 @@ type configuration struct {
 	backoff func() backoff.BackOff
 }
 
+// WithBackoff can be passes as an option to disable the exponential backoff strategy.
 func WithBackoff(b bool) Option {
 	return func(c *configuration) {
 		if b {

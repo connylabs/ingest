@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/cmd"
 	"github.com/connylabs/ingest/config"
 	"github.com/connylabs/ingest/dequeue"
@@ -142,17 +143,11 @@ func Main() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
-	if err != nil {
-		return err
-	}
-
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-
 	q, err := queue.New(*appFlags.queueEndpoint, reg)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate queue: %w", err)
@@ -164,49 +159,9 @@ func Main() error {
 			level.Error(logger).Log("msg", "failed to close queue", "err", err.Error())
 		}
 	}()
-
 	var g run.Group
-	for _, w := range c.Workflows {
-		logger = log.With(logger, "workflow", w.Name)
-		switch *appFlags.mode {
-		case enqueueMode:
-			logger = log.With(logger, "mode", enqueueMode)
-			logger = log.With(logger, "source", w.Source)
-			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.queueSubject, w.Name}, "."), q, reg, logger)
-			if err != nil {
-				return fmt.Errorf("failed to connect to the queue: %v", err)
-			}
-			g.Add(
-				cmd.NewEnqueuerRunner(ctx, qc, *w.Interval, logger),
-				func(error) {
-					cancel()
-				},
-			)
-		case dequeueMode:
-			logger := log.With(logger, "mode", dequeueMode)
-			for _, d := range w.Destinations {
-				logger = log.With(logger, "destination", d)
-				s := storage.NewInstrumentedStorage(destinations[d], reg)
-				d := dequeue.New(w.Webhook, sources[w.Source], s, q,
-					*appFlags.streamName,
-					*appFlags.consumerName,
-					strings.Join([]string{*appFlags.queueSubject, w.Name}, "."),
-					w.BatchSize,
-					w.CleanUp,
-					logger,
-					reg,
-				)
-				g.Add(
-					cmd.NewDequeuerRunner(ctx, d, logger),
-					func(error) {
-						cancel()
-					},
-				)
-			}
-		default:
-			flag.Usage()
-			return fmt.Errorf("unsupported mode %q", *appFlags.mode)
-		}
+	if err := runGroup(ctx, &g, q, appFlags, c, logger, reg); err != nil {
+		return err
 	}
 
 	{
@@ -257,4 +212,58 @@ func Main() error {
 	}
 
 	return g.Run()
+}
+
+func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, c *config.Config, logger log.Logger, reg prometheus.Registerer) error {
+	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
+	if err != nil {
+		return err
+	}
+
+	for _, w := range c.Workflows {
+		logger = log.With(logger, "workflow", w.Name)
+		switch *appFlags.mode {
+		case enqueueMode:
+			ctx, cancel := context.WithCancel(ctx)
+			logger = log.With(logger, "mode", enqueueMode)
+			logger = log.With(logger, "source", w.Source)
+			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.queueSubject, w.Name}, "."), q, reg, logger)
+			if err != nil {
+				cancel()
+				return fmt.Errorf("failed to connect to the queue: %v", err)
+			}
+			g.Add(
+				cmd.NewEnqueuerRunner(ctx, qc, *w.Interval, logger),
+				func(error) {
+					cancel()
+				},
+			)
+		case dequeueMode:
+			logger := log.With(logger, "mode", dequeueMode)
+			for _, d := range w.Destinations {
+				ctx, cancel := context.WithCancel(ctx)
+				logger := log.With(logger, "destination", d)
+				s := storage.NewInstrumentedStorage(destinations[d], reg)
+				d := dequeue.New(w.Webhook, sources[w.Source], s, q,
+					*appFlags.streamName,
+					*appFlags.consumerName,
+					strings.Join([]string{*appFlags.queueSubject, w.Name}, "."),
+					w.BatchSize,
+					w.CleanUp,
+					logger,
+					reg,
+				)
+				g.Add(
+					cmd.NewDequeuerRunner(ctx, d, logger),
+					func(error) {
+						cancel()
+					},
+				)
+			}
+		default:
+			flag.Usage()
+			return fmt.Errorf("unsupported mode %q", *appFlags.mode)
+		}
+	}
+	return nil
 }

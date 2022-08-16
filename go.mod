@@ -6,6 +6,7 @@ require (
 	github.com/campoy/embedmd v1.0.0
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/efficientgo/e2e v0.12.1
+	github.com/ghodss/yaml v1.0.0
 	github.com/go-kit/log v0.2.0
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/minio/mc v0.0.0-20220719042210-cb7f9b6db205
@@ -19,7 +20,6 @@ require (
 	github.com/vektra/mockery/v2 v2.10.2
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	google.golang.org/api v0.63.0
-	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -47,7 +47,6 @@ require (
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/gdamore/tcell/v2 v2.4.1-0.20210905002822-f057f0a857a1 // indirect
-	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/goccy/go-json v0.8.1 // indirect
@@ -169,5 +168,6 @@ require (
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 	gopkg.in/h2non/filetype.v1 v1.0.5 // indirect
 	gopkg.in/ini.v1 v1.66.3 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

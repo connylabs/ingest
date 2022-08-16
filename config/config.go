@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	stdplugin "plugin"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/mitchellh/mapstructure"
-	"gopkg.in/yaml.v2"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/plugin"
@@ -19,14 +19,16 @@ import (
 
 var defaultInterval = 5 * time.Minute
 
+// NewFromPath creates a new Config from the given file path.
 func NewFromPath(path string) (*Config, error) {
-	f, err := ioutil.ReadFile(path)
+	f, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read tenant configuration file from path %q: %w", path, err)
 	}
 	return New(f)
 }
 
+// New creates a new Config from the given file content.
 func New(buf []byte) (*Config, error) {
 	c := new(Config)
 
@@ -79,6 +81,7 @@ type Workflow struct {
 	Webhook      string
 }
 
+// Config represents a configuration of sources, workflows and destinations.
 type Config struct {
 	Version      string
 	Sources      []Source
@@ -86,6 +89,7 @@ type Config struct {
 	Workflows    []Workflow
 }
 
+// ConfigurePlugins configures the plugins found in path.
 func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
 	// Collect all of the named plugins.
 	plugins := make(map[string]plugin.Plugin)

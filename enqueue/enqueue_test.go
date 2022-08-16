@@ -284,7 +284,7 @@ ingest_queue_operations_total{operation="publish",result="success"} 2
 		// Run before after config so, it uses the updated globals from config().
 		before(t)
 		var err error
-		en, err = New(nexter, "sub", q, reg, l, WithBackoff(false))
+		en, err = New(nexter, "sub", q, reg, l, WithBackoff(true))
 		requ.Nil(err)
 
 		tc.runner(t)
