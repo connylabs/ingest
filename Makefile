@@ -58,7 +58,7 @@ build: $(BINS) $(PLUGINS)
 $(BINS): $(SRC) go.mod
 	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))
 	@echo "building: $@"
-	@$(BUILD_PREFIX) \
+	$(BUILD_PREFIX) \
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
@@ -74,7 +74,7 @@ $(BIN_DIR):
 $(PLUGINS): $(SRC) go.mod
 	@mkdir -p $(PLUGIN_DIR)/$(word 3,$(subst /, ,$@))/$(word 4,$(subst /, ,$@))
 	@echo "building: $@"
-	@$(BUILD_PREFIX) \
+	$(BUILD_PREFIX) \
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \

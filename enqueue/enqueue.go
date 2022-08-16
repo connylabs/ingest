@@ -17,19 +17,44 @@ type enqueuer struct {
 	q                    ingest.Queue
 	n                    ingest.Nexter
 	l                    log.Logger
+	backoff              func() backoff.BackOff
 	queueSubject         string
 	enqueueAttemptsTotal *prometheus.CounterVec
 }
 
+type configuration struct {
+	backoff func() backoff.BackOff
+}
+
+func WithBackoff(b bool) Option {
+	return func(c *configuration) {
+		if b {
+			c.backoff = func() backoff.BackOff { return backoff.NewExponentialBackOff() }
+			return
+		}
+		c.backoff = func() backoff.BackOff { return &backoff.StopBackOff{} }
+	}
+}
+
+// Option modifies the handler's configuration.
+type Option func(c *configuration)
+
 // New creates new ingest.Enqueuer.
-func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
+func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger, opts ...Option) (ingest.Enqueuer, error) {
 	if l == nil {
 		l = log.NewNopLogger()
+	}
+	c := &configuration{
+		backoff: func() backoff.BackOff { return backoff.NewExponentialBackOff() },
+	}
+	for _, o := range opts {
+		o(c)
 	}
 	return &enqueuer{
 		q:            q,
 		n:            n,
 		l:            l,
+		backoff:      c.backoff,
 		queueSubject: queueSubject,
 		enqueueAttemptsTotal: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{
@@ -61,6 +86,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 		return err
 	}
 	operation := func() error {
+		level.Warn(e.l).Log("msg", "getting next item from source")
 		for {
 			item, err := e.n.Next(ctx)
 			if err != nil {
@@ -86,8 +112,9 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 			}
 		}
 	}
+	level.Warn(e.l).Log("msg", "run backoff")
 
-	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
+	bctx := backoff.WithContext(&backoff.StopBackOff{}, ctx)
 	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {
 		return err
 	}
