@@ -1,4 +1,4 @@
-.PHONY: build e2e e2e-setup e2e-teardown fmt lint lint-go gen-mock vendor
+.PHONY: build test e2e e2e-setup e2e-teardown fmt lint lint-go gen-mock vendor
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
@@ -168,6 +168,9 @@ e2e-teardown: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(NATS_BINARY) $(MINIO_CLIEN
 
 e2e: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(PLUGINS) $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
 	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) $(E2E_PREFIX) ./e2e/ingest.sh $(E2E_SUFIX)
+
+test: $(PLUGINS)
+	E2E=1 go test ./...
 
 vendor:
 	go mod tidy
