@@ -60,6 +60,15 @@ github.com/decred/dcrd/dcrec/secp256k1/v4
 ## explicit
 github.com/dustin/go-humanize
 github.com/dustin/go-humanize/english
+# github.com/efficientgo/e2e v0.12.1
+## explicit; go 1.15
+github.com/efficientgo/e2e
+github.com/efficientgo/e2e/matchers
+# github.com/efficientgo/tools/core v0.0.0-20210129205121-421d0828c9a6
+## explicit; go 1.15
+github.com/efficientgo/tools/core/pkg/backoff
+github.com/efficientgo/tools/core/pkg/errcapture
+github.com/efficientgo/tools/core/pkg/merrors
 # github.com/emicklei/dot v0.16.0
 ## explicit; go 1.13
 github.com/emicklei/dot
