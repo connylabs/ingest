@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"html/template"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -125,42 +129,42 @@ func TestRunGroup(t *testing.T) {
 	}
 	setUp(t)
 
-	rawConfig := []byte(fmt.Sprintf(`sources:
+	tmpl, err := template.New("config").Parse(`sources:
 - name: foo_1
   type: s3
-  endpoint: %s
+  endpoint: {{ .Foo1Endpoint }}
   insecure: true
   bucket: source
   prefix: prefix/
-  accessKeyID: AKIAIOSFODNN7EXAMPLE
-  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  accessKeyID: {{ .AccessKeyID }}
+  secretAccessKey: {{ .SecretAccessKey }}
 - name: foo_2
   type: s3
-  endpoint: %s
+  endpoint: {{ .Foo2Endpoint }}
   insecure: true
   bucket: source
   prefix: prefix/
-  accessKeyID: AKIAIOSFODNN7EXAMPLE
-  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  accessKeyID: {{ .AccessKeyID }}
+  secretAccessKey: {{ .SecretAccessKey }}
 destinations:
 - name: bar_1
   type: s3
-  endpoint: %s
+  endpoint: {{ .Foo2Endpoint }}
   insecure: true
   bucket: destination
   prefix: target_prefix/
   metafilesPrefix: meta/
-  accessKeyID: AKIAIOSFODNN7EXAMPLE
-  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  accessKeyID: {{ .AccessKeyID }}
+  secretAccessKey: {{ .SecretAccessKey }}
 - name: bar_2
   type: s3
-  endpoint: %s
+  endpoint: {{ .Foo2Endpoint }}
   insecure: true
   bucket: destination
   prefix: target_prefix/
   metafilesPrefix: meta/
-  accessKeyID: AKIAIOSFODNN7EXAMPLE
-  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  accessKeyID: {{ .AccessKeyID }}
+  secretAccessKey: {{ .SecretAccessKey }}
 workflows:
 - name: foo_1-bar_1
   source: foo_1
@@ -176,11 +180,24 @@ workflows:
   - bar_2
   interval: 0
   webhook: http://localhost:8080 
-`,
-		minioInstance1.Endpoint("minio"),
-		minioInstance2.Endpoint("minio"),
-		minioInstance1.Endpoint("minio"),
-		minioInstance2.Endpoint("minio")))
+`)
+	require.Nil(t, err)
+	b := bytes.NewBuffer(nil)
+	err = tmpl.Execute(b, struct {
+		Foo2Endpoint    string
+		Foo1Endpoint    string
+		AccessKeyID     string
+		SecretAccessKey string
+	}{
+		Foo1Endpoint:    minioInstance1.Endpoint("minio"),
+		Foo2Endpoint:    minioInstance2.Endpoint("minio"),
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+	})
+	require.Nil(t, err)
+
+	rawConfig, err := io.ReadAll(b)
+	require.Nil(t, err)
 
 	c, err := config.New(rawConfig)
 	require.Nil(t, err)
@@ -220,7 +237,7 @@ workflows:
 		appFlags := &flags{
 			mode:            toPtr(enqueueMode),
 			queueSubject:    toPtr("ingest"),
-			pluginDirectory: toPtr("../../bin/plugin/linux/amd64"),
+			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
 		require.Nil(t, runGroup(ctx, &g, q, appFlags, c, l, reg))
 
@@ -234,7 +251,7 @@ workflows:
 			queueSubject:    toPtr("ingest"),
 			streamName:      toPtr("nats-str"),
 			consumerName:    toPtr("nats-con"),
-			pluginDirectory: toPtr("../../bin/plugin/linux/amd64"),
+			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
 		tctx, tcancel := context.WithTimeout(ctx, 10*time.Second)
 		defer tcancel()
