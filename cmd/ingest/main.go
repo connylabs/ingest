@@ -121,8 +121,7 @@ func Main() error {
 	default:
 		return fmt.Errorf("log level %v unknown; possible values are: %s", *appFlags.logLevel, availableLogLevels)
 	}
-	logger = log.With(logger, "ts", log.DefaultTimestampUTC)
-	logger = log.With(logger, "caller", log.DefaultCaller)
+	logger = log.With(logger, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
 	stdlog.SetOutput(log.NewStdlibAdapter(logger))
 
 	if *appFlags.help {
@@ -222,11 +221,12 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 
 	for _, w := range c.Workflows {
 		logger = log.With(logger, "workflow", w.Name)
+		reg := prometheus.WrapRegistererWith(prometheus.Labels{"workflow": w.Name}, reg)
 		switch *appFlags.mode {
 		case enqueueMode:
 			ctx, cancel := context.WithCancel(ctx)
-			logger = log.With(logger, "mode", enqueueMode)
-			logger = log.With(logger, "source", w.Source)
+			reg := prometheus.WrapRegistererWith(prometheus.Labels{"source": w.Source}, reg)
+			logger := log.With(logger, "mode", enqueueMode, "source", w.Source)
 			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.queueSubject, w.Name}, "."), q, reg, logger)
 			if err != nil {
 				cancel()
@@ -242,6 +242,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			logger := log.With(logger, "mode", dequeueMode)
 			for _, d := range w.Destinations {
 				ctx, cancel := context.WithCancel(ctx)
+				reg := prometheus.WrapRegistererWith(prometheus.Labels{"destination": d}, reg)
 				logger := log.With(logger, "destination", d)
 				s := storage.NewInstrumentedStorage(destinations[d], reg)
 				d := dequeue.New(w.Webhook, sources[w.Source], s, q,
