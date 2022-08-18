@@ -1,4 +1,4 @@
-.PHONY: build test e2e e2e-setup e2e-teardown fmt lint lint-go gen-mock vendor
+.PHONY: build test fmt lint lint-go gen-mock vendor
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
@@ -29,10 +29,10 @@ GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
 MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
-BASH_UNIT := $(shell pwd)/bin/bash_unit
 
 BUILD_IMAGE ?= golang:1.18.0
 CONTAINERIZE_BUILD ?= true
+E2E ?= true
 BUILD_PREFIX :=
 BUILD_SUFIX :=
 ifeq ($(CONTAINERIZE_BUILD), true)
@@ -45,20 +45,12 @@ ifeq ($(CONTAINERIZE_BUILD), true)
 	BUILD_SUFIX := '
 endif
 
-E2E_SETUP ?= true
-E2E_PREFIX :=
-E2E_SUFIX :=
-ifeq ($(E2E_SETUP), true)
-	E2E_PREFIX := ./e2e/setup.sh
-	E2E_SUFIX := ./e2e/teardown.sh
-endif
-
 build: $(BINS) $(PLUGINS)
 
 $(BINS): $(SRC) go.mod
 	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))
 	@echo "building: $@"
-	$(BUILD_PREFIX) \
+	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
@@ -74,7 +66,7 @@ $(BIN_DIR):
 $(PLUGINS): $(SRC) go.mod
 	@mkdir -p $(PLUGIN_DIR)/$(word 3,$(subst /, ,$@))/$(word 4,$(subst /, ,$@))
 	@echo "building: $@"
-	$(BUILD_PREFIX) \
+	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
@@ -155,30 +147,12 @@ lint-go: $(GOLINT_BINARY)
 	fi
 
 
-e2e/jetstream: $(NATS_BINARY)
-	rm -rf S@
-	mkdir -p e2e
-	$(NATS_BINARY) backup -s nats://127.0.0.1:4222 e2e/jetstream
-
-e2e-setup: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
-	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) ./e2e/setup.sh
-
-e2e-teardown: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
-	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) ./e2e/teardown.sh
-
-e2e: $(BASH_UNIT) bin/$(OS)/$(ARCH)/ingest $(PLUGINS) $(NATS_BINARY) $(MINIO_CLIENT_BINARY)
-	NATS_BINARY=$(NATS_BINARY) MINIO_CLIENT_BINARY=$(MINIO_CLIENT_BINARY) INGEST_BINARY=$(shell pwd)/bin/$(OS)/$(ARCH)/ingest PLUGIN_DIR=$(shell pwd)/$(PLUGIN_DIR)/$(OS)/$(ARCH) $(BASH_UNIT) $(BASH_UNIT_FLAGS) $(E2E_PREFIX) ./e2e/ingest.sh $(E2E_SUFIX)
-
 test: $(PLUGINS)
-	E2E=1 go test ./...
+	E2E=$(E2E) go test ./...
 
 vendor:
 	go mod tidy
 	go mod vendor
-
-$(BASH_UNIT): | $(BIN_DIR)
-	curl -Lo $@ https://raw.githubusercontent.com/pgrange/bash_unit/v1.7.2/bash_unit
-	chmod +x $@
 
 $(GOLINT_BINARY): | $(BIN_DIR)
 	go build -mod=vendor -o $@ golang.org/x/lint/golint
