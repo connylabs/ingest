@@ -7,8 +7,8 @@ import (
 	"html/template"
 	"io"
 	"os"
+	"path"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,91 +26,115 @@ import (
 	"github.com/connylabs/ingest/queue"
 )
 
-var (
+const (
 	accessKeyID     = "AKIAIOSFODNN7EXAMPLE"
 	secretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-
-	natsInstance   e2e.Runnable
-	minioInstance1 e2e.Runnable
-	minioInstance2 e2e.Runnable
-
-	mc1 *minio.Client
-	mc2 *minio.Client
-	js  nats.JetStreamContext
-
-	l log.Logger
+	stream          = "nats-str"
+	consumer        = "nats-con"
+	minioImage      = "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z"
+	natsImage       = "nats:2.6.1"
 )
 
-func setUp(t *testing.T) {
-	requ := require.New(t)
-	l = log.NewJSONLogger(os.Stdout)
-	e, err := e2e.NewDockerEnvironment("main_e2e")
-	requ.Nil(err)
+func newMinioRunnable(e e2e.Environment, name string) e2e.Runnable {
+	return e.Runnable(name).WithPorts(
+		map[string]int{
+			"minio":   9000,
+			"console": 9001,
+		}).Init(e2e.StartOptions{
+		Image:     minioImage,
+		Command:   e2e.NewCommand("", "server", "/data", "--console-address", ":9001"),
+		Readiness: e2e.NewHTTPReadinessProbe("minio", "/minio/health/ready", 200, 299),
+		EnvVars: map[string]string{
+			"MINIO_ROOT_USER":     accessKeyID,
+			"MINIO_ROOT_PASSWORD": secretAccessKey,
+		},
+	})
+}
 
-	natsInstance = e.Runnable("nats").WithPorts(
+func newNATSRunnable(e e2e.Environment, name string) e2e.Runnable {
+	return e.Runnable(name).WithPorts(
 		map[string]int{
 			"nats": 4222,
 			"http": 8222,
 		}).Init(e2e.StartOptions{
-		Image:     "nats:2.6.1",
+		Image:     natsImage,
 		Command:   e2e.NewCommand("", "-js", "--http_port", "8222"),
 		Readiness: e2e.NewHTTPReadinessProbe("http", "/", 200, 299),
 	})
-	minioInstance1 = e.Runnable("minio_1").WithPorts(
-		map[string]int{
-			"minio":   9000,
-			"console": 9001,
-		}).Init(e2e.StartOptions{
-		Image:     "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z",
-		Command:   e2e.NewCommand("", "server", "/data", "--console-address", ":9001"),
-		Readiness: e2e.NewHTTPReadinessProbe("minio", "/minio/health/ready", 200, 299),
-		EnvVars: map[string]string{
-			"MINIO_ROOT_USER":     accessKeyID,
-			"MINIO_ROOT_PASSWORD": secretAccessKey,
-		},
-	})
-	minioInstance2 = e.Runnable("minio_2").WithPorts(
-		map[string]int{
-			"minio":   9000,
-			"console": 9001,
-		}).Init(e2e.StartOptions{
-		Image:     "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z",
-		Command:   e2e.NewCommand("", "server", "/data", "--console-address", ":9001"),
-		Readiness: e2e.NewHTTPReadinessProbe("minio", "/minio/health/ready", 200, 299),
-		EnvVars: map[string]string{
-			"MINIO_ROOT_USER":     accessKeyID,
-			"MINIO_ROOT_PASSWORD": secretAccessKey,
-		},
-	})
+}
 
-	requ.Nil(e2e.StartAndWaitReady(natsInstance, minioInstance1, minioInstance2))
+type s3File struct {
+	data   []byte
+	name   string
+	prefix string
+}
 
-	mc1, err = minio.New(minioInstance1.Endpoint("minio"), &minio.Options{
-		Secure: false,
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-	})
+func setUpMinios(t *testing.T, e e2e.Environment, files map[string]map[string][]s3File) (map[string]e2e.Runnable, map[string]*minio.Client) {
+	requ := require.New(t)
+	clients := make(map[string]*minio.Client)
+	runnables := make(map[string]e2e.Runnable)
+	var rs []e2e.Runnable
+	var err error
+	for m := range files {
+		rs = append(rs, newMinioRunnable(e, m))
+		runnables[m] = rs[len(rs)-1]
+	}
+	requ.Nil(e2e.StartAndWaitReady(rs...))
+	for m := range files {
+		clients[m], err = minio.New(runnables[m].Endpoint("minio"), &minio.Options{
+			Secure: false,
+			Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		})
+		requ.Nil(err)
+	}
+	for m, bs := range files {
+		for b, fs := range bs {
+			err = clients[m].MakeBucket(context.Background(), b, minio.MakeBucketOptions{})
+			require.Nil(t, err)
+			for _, f := range fs {
+				buf := bytes.NewReader(f.data)
+				_, err = clients[m].PutObject(context.Background(), b, path.Join(f.prefix, f.name), buf, buf.Size(), minio.PutObjectOptions{})
+				require.Nil(t, err)
+
+			}
+		}
+	}
+	t.Cleanup(
+		func() {
+			for _, r := range rs {
+				requ.Nil(r.Stop())
+			}
+		})
+
+	return runnables, clients
+}
+
+func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[string]e2e.Runnable, map[string]*minio.Client) {
+	requ := require.New(t)
+	e, err := e2e.NewDockerEnvironment("main_e2e")
 	requ.Nil(err)
-	mc2, err = minio.New(minioInstance2.Endpoint("minio"), &minio.Options{
-		Secure: false,
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-	})
-	requ.Nil(err)
+
+	natsInstance := newNATSRunnable(e, "nats")
+	requ.Nil(e2e.StartAndWaitReady(natsInstance))
+	rs, mcs := setUpMinios(t, e, files)
 
 	nc, err := nats.Connect(natsInstance.Endpoint("nats"))
 	requ.Nil(err)
 
-	js, err = nc.JetStream()
+	js, err := nc.JetStream()
 	requ.Nil(err)
 
 	_, err = js.AddStream(&nats.StreamConfig{
-		Name:     "nats-str",
-		Subjects: []string{"ingest.*"},
+		Name:      stream,
+		Subjects:  []string{"ingest.*"},
+		Retention: nats.WorkQueuePolicy,
 	})
 	requ.Nil(err)
 
-	_, err = js.AddConsumer("nats-str", &nats.ConsumerConfig{
-		Durable:   "nats-con",
-		AckPolicy: nats.AckExplicitPolicy,
+	_, err = js.AddConsumer(stream, &nats.ConsumerConfig{
+		Durable:       consumer,
+		AckPolicy:     nats.AckExplicitPolicy,
+		DeliverPolicy: nats.DeliverAllPolicy,
 	})
 	requ.Nil(err)
 
@@ -118,16 +142,57 @@ func setUp(t *testing.T) {
 		func() {
 			nc.Close()
 			requ.Nil(natsInstance.Stop())
-			requ.Nil(minioInstance1.Stop())
-			requ.Nil(minioInstance2.Stop())
 		})
+	return natsInstance.Endpoint("nats"), rs, mcs
 }
 
 func TestRunGroup(t *testing.T) {
 	if v, ok := os.LookupEnv("E2E"); !ok || !(v == "1" || v == "true") {
 		t.Skip("To enable this test, set the E2E environment variable to 1 or true")
 	}
-	setUp(t)
+	files := map[string]map[string][]s3File{
+		"minio_1": {
+			"source": []s3File{
+				{
+					data:   []byte("a file"),
+					name:   "file_1",
+					prefix: "prefix",
+				},
+			},
+		},
+		"minio_2": {
+			"destination": []s3File{},
+			"source": []s3File{
+				{
+					data:   []byte("a file"),
+					name:   "file_2",
+					prefix: "prefix",
+				},
+			},
+		},
+	}
+	natsEndpoint, rs, mcs := setUp(t, files)
+	ensureFiles := map[string]map[string][]s3File{
+		"minio_2": {
+			"destination": []s3File{
+				{
+					data:   []byte("a file"),
+					name:   "file_1",
+					prefix: "prefix1",
+				},
+				{
+					data:   []byte("a file"),
+					name:   "file_2",
+					prefix: "prefix1",
+				},
+				{
+					data:   []byte("a file"),
+					name:   "file_2",
+					prefix: "prefix2",
+				},
+			},
+		},
+	}
 
 	tmpl, err := template.New("config").Parse(`sources:
 - name: foo_1
@@ -152,7 +217,7 @@ destinations:
   endpoint: {{ .Foo2Endpoint }}
   insecure: true
   bucket: destination
-  prefix: target_prefix/
+  prefix: prefix1/
   metafilesPrefix: meta/
   accessKeyID: {{ .AccessKeyID }}
   secretAccessKey: {{ .SecretAccessKey }}
@@ -161,7 +226,7 @@ destinations:
   endpoint: {{ .Foo2Endpoint }}
   insecure: true
   bucket: destination
-  prefix: target_prefix/
+  prefix: prefix2/
   metafilesPrefix: meta/
   accessKeyID: {{ .AccessKeyID }}
   secretAccessKey: {{ .SecretAccessKey }}
@@ -189,8 +254,8 @@ workflows:
 		AccessKeyID     string
 		SecretAccessKey string
 	}{
-		Foo1Endpoint:    minioInstance1.Endpoint("minio"),
-		Foo2Endpoint:    minioInstance2.Endpoint("minio"),
+		Foo1Endpoint:    rs["minio_1"].Endpoint("minio"),
+		Foo2Endpoint:    rs["minio_2"].Endpoint("minio"),
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretAccessKey,
 	})
@@ -207,8 +272,10 @@ workflows:
 
 	reg := prometheus.NewRegistry()
 
-	q, err := queue.New(natsInstance.Endpoint("nats"), reg)
+	q, err := queue.New(natsEndpoint, reg)
 	require.Nil(t, err)
+
+	l := log.NewJSONLogger(os.Stdout)
 
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -218,19 +285,6 @@ workflows:
 		}
 	}()
 
-	mc1.MakeBucket(ctx, "source", minio.MakeBucketOptions{})
-	mc2.MakeBucket(ctx, "source", minio.MakeBucketOptions{})
-
-	mc1.MakeBucket(ctx, "destination", minio.MakeBucketOptions{})
-	mc2.MakeBucket(ctx, "destination", minio.MakeBucketOptions{})
-
-	content := "a file"
-	buf := strings.NewReader(content)
-	_, err = mc1.PutObject(ctx, "source", "prefix/file_1", buf, buf.Size(), minio.PutObjectOptions{})
-	require.Nil(t, err)
-	buf = strings.NewReader(content)
-	_, err = mc2.PutObject(ctx, "source", "prefix/file_2", buf, buf.Size(), minio.PutObjectOptions{})
-	require.Nil(t, err)
 	{
 		// enqueue
 		var g run.Group
@@ -249,8 +303,8 @@ workflows:
 		appFlags := &flags{
 			mode:            toPtr(dequeueMode),
 			queueSubject:    toPtr("ingest"),
-			streamName:      toPtr("nats-str"),
-			consumerName:    toPtr("nats-con"),
+			streamName:      toPtr(stream),
+			consumerName:    toPtr(consumer),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
 		tctx, tcancel := context.WithTimeout(ctx, 10*time.Second)
@@ -261,25 +315,16 @@ workflows:
 
 		for {
 			err := func() error {
-				_, err = mc1.GetObject(tctx, "destination", "target_prefix/file_1", minio.GetObjectOptions{})
-				if err != nil {
-					return err
-				}
-				_, err = mc1.GetObject(tctx, "destination", "target_prefix/file_2", minio.GetObjectOptions{})
-				if err != nil {
-					return err
-				}
-				_, err = mc2.GetObject(tctx, "destination", "target_prefix/file_2", minio.GetObjectOptions{})
-				if err != nil {
-					return err
-				}
-				if ok, _ := mc1.BucketExists(tctx, "source"); ok {
-					// This bucket should be empty and we can delete it.
-					err := mc1.RemoveBucket(tctx, "source")
-					if err != nil {
-						fmt.Println(err.Error())
-						return err
+				for m, bs := range ensureFiles {
+					for b, fs := range bs {
+						for _, f := range fs {
+							_, err = mcs[m].GetObject(tctx, b, path.Join(f.prefix, f.name), minio.GetObjectOptions{})
+							if err != nil {
+								return err
+							}
+						}
 					}
+
 				}
 				return nil
 			}()
