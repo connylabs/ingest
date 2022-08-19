@@ -79,7 +79,7 @@ func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, 
 }
 
 func (d *dequeuer) Dequeue(ctx context.Context) error {
-	sub, err := d.q.PullSubscribe(d.subjectName, d.consumerName, nats.Bind(d.streamName, d.consumerName))
+	sub, err := d.q.PullSubscribe(d.subjectName, d.consumerName, nats.BindStream(d.streamName))
 	if err != nil {
 		return err
 	}
