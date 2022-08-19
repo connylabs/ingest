@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"os"
 	"path"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,8 +31,9 @@ import (
 const (
 	accessKeyID     = "AKIAIOSFODNN7EXAMPLE"
 	secretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-	stream          = "nats-str"
-	consumer        = "nats-con"
+	subject         = "subject"
+	stream          = "stream"
+	consumer        = "consumer"
 	minioImage      = "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z"
 	natsImage       = "nats:2.6.1"
 )
@@ -126,15 +129,8 @@ func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[stri
 
 	_, err = js.AddStream(&nats.StreamConfig{
 		Name:      stream,
-		Subjects:  []string{"ingest.*"},
+		Subjects:  []string{strings.Join([]string{subject, "*"}, ".")},
 		Retention: nats.WorkQueuePolicy,
-	})
-	requ.Nil(err)
-
-	_, err = js.AddConsumer(stream, &nats.ConsumerConfig{
-		Durable:       consumer,
-		AckPolicy:     nats.AckExplicitPolicy,
-		DeliverPolicy: nats.DeliverAllPolicy,
 	})
 	requ.Nil(err)
 
@@ -290,7 +286,7 @@ workflows:
 		var g run.Group
 		appFlags := &flags{
 			mode:            toPtr(enqueueMode),
-			queueSubject:    toPtr("ingest"),
+			subject:         toPtr(subject),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
 		require.Nil(t, runGroup(ctx, &g, q, appFlags, c, l, reg))
@@ -302,25 +298,37 @@ workflows:
 		var g run.Group
 		appFlags := &flags{
 			mode:            toPtr(dequeueMode),
-			queueSubject:    toPtr("ingest"),
-			streamName:      toPtr(stream),
-			consumerName:    toPtr(consumer),
+			subject:         toPtr(subject),
+			stream:          toPtr(stream),
+			consumer:        toPtr(consumer),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
 		tctx, tcancel := context.WithTimeout(ctx, 10*time.Second)
 		defer tcancel()
 		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
 
-		go require.Nil(t, g.Run())
+		go func() {
+			require.Nil(t, g.Run())
+		}()
 
 		for {
 			err := func() error {
 				for m, bs := range ensureFiles {
 					for b, fs := range bs {
 						for _, f := range fs {
-							_, err = mcs[m].GetObject(tctx, b, path.Join(f.prefix, f.name), minio.GetObjectOptions{})
+							obj, err := mcs[m].GetObject(tctx, b, path.Join(f.prefix, f.name), minio.GetObjectOptions{})
 							if err != nil {
 								return err
+							}
+							if obj == nil {
+								return errors.New("not found")
+							}
+							oi, err := obj.Stat()
+							if err != nil {
+								return err
+							}
+							if oi.Err != nil {
+								return oi.Err
 							}
 						}
 					}

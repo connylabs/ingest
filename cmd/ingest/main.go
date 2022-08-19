@@ -70,9 +70,9 @@ func main() {
 type flags struct {
 	listenInternal  *string
 	queueEndpoint   *string
-	streamName      *string
-	queueSubject    *string
-	consumerName    *string
+	stream          *string
+	subject         *string
+	consumer        *string
 	printVersion    *bool
 	logLevel        *string
 	mode            *string
@@ -91,9 +91,9 @@ func Main() error {
 	appFlags := &flags{
 		listenInternal:  flag.String("listen", ":9090", "The address at which to listen for health and metrics"),
 		queueEndpoint:   flag.String("queue-endpoint", "nats://localhost:4222", "The queue endpoint to which to connect"),
-		streamName:      flag.String("stream-name", "ingest", "The stream name to which to connect"),
-		queueSubject:    flag.String("queue-subject", "ingest", "The queue name to which to connect"),
-		consumerName:    flag.String("consumer-name", "ingest", "The consumer name to which to connect"),
+		stream:          flag.String("stream", "ingest", "The stream name to which to connect"),
+		subject:         flag.String("subject", "ingest", "The subject name to which to connect"),
+		consumer:        flag.String("consumer", "ingest", "The prefix to use for dymanically created consumer names"),
 		printVersion:    flag.Bool("version", false, "Show version"),
 		logLevel:        flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
 		mode:            flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
@@ -227,7 +227,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			ctx, cancel := context.WithCancel(ctx)
 			reg := prometheus.WrapRegistererWith(prometheus.Labels{"source": w.Source}, reg)
 			logger := log.With(logger, "mode", enqueueMode, "source", w.Source)
-			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.queueSubject, w.Name}, "."), q, reg, logger)
+			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.subject, w.Name}, "."), q, reg, logger)
 			if err != nil {
 				cancel()
 				return fmt.Errorf("failed to connect to the queue: %v", err)
@@ -240,27 +240,30 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			)
 		case dequeueMode:
 			logger := log.With(logger, "mode", dequeueMode)
+			var s []storage.Storage
 			for _, d := range w.Destinations {
-				ctx, cancel := context.WithCancel(ctx)
 				reg := prometheus.WrapRegistererWith(prometheus.Labels{"destination": d}, reg)
-				logger := log.With(logger, "destination", d)
-				s := storage.NewInstrumentedStorage(destinations[d], reg)
-				d := dequeue.New(w.Webhook, sources[w.Source], s, q,
-					*appFlags.streamName,
-					*appFlags.consumerName,
-					strings.Join([]string{*appFlags.queueSubject, w.Name}, "."),
-					w.BatchSize,
-					w.CleanUp,
-					logger,
-					reg,
-				)
-				g.Add(
-					cmd.NewDequeuerRunner(ctx, d, logger),
-					func(error) {
-						cancel()
-					},
-				)
+				s = append(s, storage.NewInstrumentedStorage(destinations[d], reg))
 			}
+			d := dequeue.New(
+				w.Webhook, sources[w.Source],
+				storage.NewInstrumentedStorage(storage.NewMultiStorage(s...), prometheus.WrapRegistererWith(prometheus.Labels{"destination": "multi"}, reg)),
+				q,
+				*appFlags.stream,
+				strings.Join([]string{*appFlags.consumer, w.Name}, "__"),
+				strings.Join([]string{*appFlags.subject, w.Name}, "."),
+				w.BatchSize,
+				w.CleanUp,
+				logger,
+				reg,
+			)
+			ctx, cancel := context.WithCancel(ctx)
+			g.Add(
+				cmd.NewDequeuerRunner(ctx, d, logger),
+				func(error) {
+					cancel()
+				},
+			)
 		default:
 			flag.Usage()
 			return fmt.Errorf("unsupported mode %q", *appFlags.mode)
