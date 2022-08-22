@@ -87,8 +87,9 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 		return err
 	}
 	operation := func() error {
-		level.Warn(e.l).Log("msg", "getting next item from source")
+		level.Info(e.l).Log("msg", "getting next item from source")
 		for {
+			level.Debug(e.l).Log("msg", "attempting to get next item")
 			item, err := e.n.Next(ctx)
 			if err != nil {
 				if err == io.EOF {
@@ -113,7 +114,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 			}
 		}
 	}
-	level.Warn(e.l).Log("msg", "run backoff")
+	level.Debug(e.l).Log("msg", "run backoff")
 
 	bctx := backoff.WithContext(e.backoff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {

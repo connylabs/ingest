@@ -272,6 +272,7 @@ workflows:
 	require.Nil(t, err)
 
 	l := log.NewJSONLogger(os.Stdout)
+	l = log.With(l, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
 
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -285,6 +286,7 @@ workflows:
 		// enqueue
 		var g run.Group
 		appFlags := &flags{
+			logLevel:        toPtr(logLevelAll),
 			mode:            toPtr(enqueueMode),
 			subject:         toPtr(subject),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
