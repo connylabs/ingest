@@ -234,8 +234,12 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			}
 			g.Add(
 				cmd.NewEnqueuerRunner(ctx, qc, *w.Interval, logger),
-				func(error) {
-					cancel()
+				func(err error) {
+					// Do not cancel the enqueuer if other enqueuers exited cleanly.
+					// Instead, let the enqueuers finish.
+					if err != nil {
+						cancel()
+					}
 				},
 			)
 		case dequeueMode:
