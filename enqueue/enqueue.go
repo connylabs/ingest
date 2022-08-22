@@ -115,7 +115,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 	}
 	level.Warn(e.l).Log("msg", "run backoff")
 
-	bctx := backoff.WithContext(&backoff.StopBackOff{}, ctx)
+	bctx := backoff.WithContext(e.backoff(), ctx)
 	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {
 		return err
 	}
