@@ -2,12 +2,13 @@
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
+ALL_ARCH := amd64 arm arm64
 BIN_DIR := bin
 PLUGIN_DIR := $(BIN_DIR)/plugin
 BINS := $(BIN_DIR)/$(OS)/$(ARCH)/ingest
 PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive)
 PROJECT := ingest
-PKG := github.com/mietright/$(PROJECT)
+PKG := github.com/connylabs/$(PROJECT)
 
 TAG := $(shell git describe --abbrev=0 --tags HEAD 2>/dev/null)
 COMMIT := $(shell git rev-parse HEAD)
@@ -30,7 +31,10 @@ MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
 
-BUILD_IMAGE ?= golang:1.18.0
+BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.18.1
+CC_amd64 ?= gcc
+CC_arm ?= arm-linux-gnueabihf-gcc
+CC_arm64 ?= aarch64-linux-gnu-gcc
 CONTAINERIZE_BUILD ?= true
 E2E ?= true
 BUILD_PREFIX :=
@@ -40,12 +44,19 @@ ifeq ($(CONTAINERIZE_BUILD), true)
 	    -u $$(id -u):$$(id -g) \
 	    -v $$(pwd):/$(PROJECT) \
 	    -w /$(PROJECT) \
+	    -e CC=$(CC_$(ARCH)) \
+	    --entrypoint '' \
 	    $(BUILD_IMAGE) \
 	    /bin/sh -c '
 	BUILD_SUFIX := '
 endif
 
 build: $(BINS) $(PLUGINS)
+
+build-%:
+	@$(MAKE) --no-print-directory OS=$(word 1,$(subst -, ,$*)) ARCH=$(word 2,$(subst -, ,$*)) build
+
+all-build: $(addprefix build-$(OS)-, $(ALL_ARCH))
 
 $(BINS): $(SRC) go.mod
 	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))

@@ -13,6 +13,19 @@ on:
 
 jobs:
 
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+    - name: Vendor
+      run: |
+        make vendor
+        git diff --exit-code
+
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -49,3 +62,87 @@ jobs:
         go-version: 1.18.0
     - name: Test
       run: CONTAINERIZE_BUILD=false make test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+    - name: Build
+      run: make
+
+  all-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+    - name: Build ingest and plugins for all Linux Architectures
+      run: make all-build
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+    - name: Build ingest and plugins
+      run: make
+    - name: Build container
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+
+  push:
+    if: github.event_name != 'pull_request'
+    needs:
+    - vendor
+    - docs
+    - lint
+    - test
+    - build
+    - all-build
+    - container
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+    - name: Build ingest and plugins for all Linux Architectures
+      run: make all-build
+    - name: Determine SHA
+      id: sha
+      run: echo "::set-output name=sha::$(git describe --always --tags --dirty)"
+    - name: Build and push
+      id: push
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        push: true
+        platforms: linux/arm64, linux/arm, linux/amd64
+        tags: ghcr.io/connylabs/ingest:latest, ghcr.io/connylabs/ingest:${{ steps.sha.outputs.sha }}
+    - name: Determine digest
+      run: echo ${{ steps.push.outputs.digest }}
