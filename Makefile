@@ -99,6 +99,10 @@ mocks/enqueuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name="Enqueuer"
 
+mocks/client.go: ingest.go $(MOCKERY_BINARY)
+	rm -f $@
+	$(MOCKERY_BINARY) --filename $(@F) --name="Client"
+
 mocks/dequeuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name="Dequeuer"
