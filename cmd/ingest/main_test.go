@@ -11,6 +11,7 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -309,8 +310,11 @@ workflows:
 		defer tcancel()
 		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
 
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func() {
 			require.Nil(t, g.Run())
+			wg.Done()
 		}()
 
 		for {
@@ -349,8 +353,8 @@ workflows:
 				t.Error(err)
 				t.FailNow()
 			}
-
 		}
+		wg.Wait()
 	}
 }
 
