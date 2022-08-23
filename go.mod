@@ -6,6 +6,7 @@ require (
 	github.com/campoy/embedmd v1.0.0
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/efficientgo/e2e v0.12.1
+	github.com/efficientgo/tools/core v0.0.0-20210129205121-421d0828c9a6
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-kit/log v0.2.0
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
@@ -40,7 +41,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/efficientgo/tools/core v0.0.0-20210129205121-421d0828c9a6 // indirect
 	github.com/emicklei/dot v0.16.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
