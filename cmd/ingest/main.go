@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -190,25 +189,8 @@ func Main() error {
 		})
 	}
 
-	{
-		// Exit gracefully on SIGINT and SIGTERM.
-		term := make(chan os.Signal, 1)
-		signal.Notify(term, syscall.SIGINT, syscall.SIGTERM)
-		cancel := make(chan struct{})
-		g.Add(func() error {
-			for {
-				select {
-				case <-term:
-					level.Info(logger).Log("msg", "caught interrupt; gracefully cleaning up; see you next time!")
-					return nil
-				case <-cancel:
-					return nil
-				}
-			}
-		}, func(error) {
-			close(cancel)
-		})
-	}
+	// Exit gracefully on SIGINT and SIGTERM.
+	g.Add(run.SignalHandler(ctx, syscall.SIGINT, syscall.SIGTERM))
 
 	return g.Run()
 }
