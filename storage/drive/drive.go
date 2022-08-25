@@ -86,7 +86,7 @@ func (ds *driveStorage) Store(ctx context.Context, element ingest.Identifiable, 
 		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
 	}
 
-	f, err := ds.s.Files.Create(file).Media(object).Context(ctx).Do()
+	f, err := ds.s.Files.Create(file).Media(object).SupportsAllDrives(true).Context(ctx).Do()
 	if err != nil {
 		return nil, err
 	}
