@@ -226,30 +226,29 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			)
 		case dequeueMode:
 			logger := log.With(logger, "mode", dequeueMode)
-			var s []storage.Storage
 			for _, d := range w.Destinations {
 				reg := prometheus.WrapRegistererWith(prometheus.Labels{"destination": d}, reg)
-				s = append(s, storage.NewInstrumentedStorage(destinations[d], reg))
+				d := dequeue.New(
+					w.Webhook, sources[w.Source],
+					storage.NewInstrumentedStorage(destinations[d], reg),
+					q,
+					*appFlags.stream,
+					strings.Join([]string{*appFlags.consumer, w.Name, d}, "__"),
+					strings.Join([]string{*appFlags.subject, w.Name}, "."),
+					w.BatchSize,
+					w.CleanUp,
+					logger,
+					reg,
+				)
+				ctx, cancel := context.WithCancel(ctx)
+				g.Add(
+					cmd.NewDequeuerRunner(ctx, d, logger),
+					func(error) {
+						cancel()
+					},
+				)
+
 			}
-			d := dequeue.New(
-				w.Webhook, sources[w.Source],
-				storage.NewInstrumentedStorage(storage.NewMultiStorage(s...), prometheus.WrapRegistererWith(prometheus.Labels{"destination": "multi"}, reg)),
-				q,
-				*appFlags.stream,
-				strings.Join([]string{*appFlags.consumer, w.Name}, "__"),
-				strings.Join([]string{*appFlags.subject, w.Name}, "."),
-				w.BatchSize,
-				w.CleanUp,
-				logger,
-				reg,
-			)
-			ctx, cancel := context.WithCancel(ctx)
-			g.Add(
-				cmd.NewDequeuerRunner(ctx, d, logger),
-				func(error) {
-					cancel()
-				},
-			)
 		default:
 			flag.Usage()
 			return fmt.Errorf("unsupported mode %q", *appFlags.mode)

@@ -121,5 +121,6 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 		return err
 	}
 
+	level.Debug(e.l).Log("msg", "successfully enqueued items")
 	return nil
 }
