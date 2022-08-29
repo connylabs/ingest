@@ -17,7 +17,7 @@ import (
 	"github.com/connylabs/ingest/plugin"
 )
 
-var defaultInterval = 5 * time.Minute
+var defaultInterval = Duration(5 * time.Minute)
 
 // NewFromPath creates a new Config from the given file path.
 func NewFromPath(path string) (*Config, error) {
@@ -76,7 +76,7 @@ type Workflow struct {
 	Source       string
 	Destinations []string
 	CleanUp      bool
-	Interval     *time.Duration
+	Interval     *Duration
 	BatchSize    int
 	Webhook      string
 }

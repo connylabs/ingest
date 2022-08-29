@@ -215,7 +215,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 				return fmt.Errorf("failed to connect to the queue: %v", err)
 			}
 			g.Add(
-				cmd.NewEnqueuerRunner(ctx, qc, *w.Interval, logger),
+				cmd.NewEnqueuerRunner(ctx, qc, time.Duration(*w.Interval), logger),
 				func(err error) {
 					// Do not cancel the enqueuer if other enqueuers exited cleanly.
 					// Instead, let the enqueuers finish.
