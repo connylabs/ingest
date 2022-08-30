@@ -131,7 +131,7 @@ func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[stri
 	_, err = js.AddStream(&nats.StreamConfig{
 		Name:      stream,
 		Subjects:  []string{strings.Join([]string{subject, "*"}, ".")},
-		Retention: nats.WorkQueuePolicy,
+		Retention: nats.InterestPolicy,
 	})
 	requ.Nil(err)
 
@@ -232,7 +232,8 @@ workflows:
   source: foo_1
   destinations:
   - bar_1
-  interval: 0
+  batchSize: 1
+  interval: 300s
   cleanUp: true
   webhook: http://localhost:8080 
 - name: foo_2-bar_1-bar_2
@@ -240,7 +241,8 @@ workflows:
   destinations:
   - bar_1
   - bar_2
-  interval: 0
+  batchSize: 1
+  interval: 300s
   webhook: http://localhost:8080 
 `)
 	require.Nil(t, err)
@@ -283,22 +285,28 @@ workflows:
 		}
 	}()
 
+	var wg sync.WaitGroup
+	var g run.Group
+	tctx, tcancel := context.WithTimeout(ctx, 10*time.Second)
+	defer tcancel()
 	{
 		// enqueue
-		var g run.Group
 		appFlags := &flags{
 			logLevel:        toPtr(logLevelAll),
 			mode:            toPtr(enqueueMode),
 			subject:         toPtr(subject),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
-		require.Nil(t, runGroup(ctx, &g, q, appFlags, c, l, reg))
+		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
 
-		require.Nil(t, g.Run())
+		wg.Add(1)
+		go func() {
+			require.Nil(t, g.Run())
+			wg.Done()
+		}()
 	}
 	{
 		// dequeue
-		var g run.Group
 		appFlags := &flags{
 			mode:            toPtr(dequeueMode),
 			subject:         toPtr(subject),
@@ -306,11 +314,8 @@ workflows:
 			consumer:        toPtr(consumer),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
-		tctx, tcancel := context.WithTimeout(ctx, 10*time.Second)
-		defer tcancel()
 		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
 
-		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			require.Nil(t, g.Run())
@@ -354,6 +359,7 @@ workflows:
 				t.FailNow()
 			}
 		}
+		tcancel()
 		wg.Wait()
 	}
 }
