@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,7 +20,7 @@ type queue struct {
 }
 
 // New is able to connect to the queue
-func New(url string, stream, subject string, reg prometheus.Registerer) (ingest.Queue, error) {
+func New(url string, stream string, subjects []string, reg prometheus.Registerer) (ingest.Queue, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
 		return &queue{conn: nil}, err
@@ -31,7 +30,6 @@ func New(url string, stream, subject string, reg prometheus.Registerer) (ingest.
 	if err != nil {
 		return &queue{conn: nil}, err
 	}
-	subjects := []string{strings.Join([]string{subject, "*"}, ".")}
 	_, err = js.AddStream(&nats.StreamConfig{
 		Name:      stream,
 		Subjects:  subjects,
