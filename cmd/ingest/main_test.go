@@ -255,7 +255,7 @@ workflows:
 
 	reg := prometheus.NewRegistry()
 
-	q, err := queue.New(natsEndpoint, stream, subject, reg)
+	q, err := queue.New(natsEndpoint, stream, []string{fmt.Sprintf("%s.*", subject)}, reg)
 	require.Nil(t, err)
 
 	l := log.NewJSONLogger(os.Stdout)
