@@ -146,7 +146,7 @@ func Main() error {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-	q, err := queue.New(*appFlags.queueEndpoint, reg)
+	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, *appFlags.subject, reg)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate queue: %w", err)
 	}

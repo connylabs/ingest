@@ -10,7 +10,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/go-kit/log"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/nats-io/nats.go"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -122,22 +120,8 @@ func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[stri
 	requ.Nil(e2e.StartAndWaitReady(natsInstance))
 	rs, mcs := setUpMinios(t, e, files)
 
-	nc, err := nats.Connect(natsInstance.Endpoint("nats"))
-	requ.Nil(err)
-
-	js, err := nc.JetStream()
-	requ.Nil(err)
-
-	_, err = js.AddStream(&nats.StreamConfig{
-		Name:      stream,
-		Subjects:  []string{strings.Join([]string{subject, "*"}, ".")},
-		Retention: nats.InterestPolicy,
-	})
-	requ.Nil(err)
-
 	t.Cleanup(
 		func() {
-			nc.Close()
 			requ.Nil(natsInstance.Stop())
 		})
 	return natsInstance.Endpoint("nats"), rs, mcs
@@ -271,7 +255,7 @@ workflows:
 
 	reg := prometheus.NewRegistry()
 
-	q, err := queue.New(natsEndpoint, reg)
+	q, err := queue.New(natsEndpoint, stream, subject, reg)
 	require.Nil(t, err)
 
 	l := log.NewJSONLogger(os.Stdout)
