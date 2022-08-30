@@ -102,8 +102,8 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 
 		uris := make([]string, 0, d.batchSize)
 		for _, raw := range msgs {
-			//item, ok := any((*new(T))).(ingest.Codec)
-			//if !ok {
+			// item, ok := any((*new(T))).(ingest.Codec)
+			// if !ok {
 			item := new(ingest.SimpleCodec)
 			//}
 			if err := item.Unmarshal(raw.Data); err != nil {

@@ -127,7 +127,7 @@ func TestEnqueueE2E(t *testing.T) {
 		err := mc.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
 		requ.Nil(err)
 
-		q, err = queue.New(natsInstance.Endpoint("nats"), reg)
+		q, err = queue.New(natsInstance.Endpoint("nats"), "nats-str", "sub", reg)
 		requ.Nil(err)
 
 		source := config.Source{

@@ -2,10 +2,14 @@ package queue
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"golang.org/x/exp/slices"
 
 	"github.com/connylabs/ingest"
 )
@@ -13,12 +17,11 @@ import (
 type queue struct {
 	js                          nats.JetStreamContext
 	conn                        *nats.Conn
-	reg                         prometheus.Registerer
 	queueOperationsTotalCounter *prometheus.CounterVec
 }
 
 // New is able to connect to the queue
-func New(url string, reg prometheus.Registerer) (ingest.Queue, error) {
+func New(url string, stream, subject string, reg prometheus.Registerer) (ingest.Queue, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
 		return &queue{conn: nil}, err
@@ -26,6 +29,27 @@ func New(url string, reg prometheus.Registerer) (ingest.Queue, error) {
 
 	js, err := conn.JetStream()
 	if err != nil {
+		return &queue{conn: nil}, err
+	}
+	subjects := []string{strings.Join([]string{subject, "*"}, ".")}
+	_, err = js.AddStream(&nats.StreamConfig{
+		Name:      stream,
+		Subjects:  subjects,
+		Retention: nats.InterestPolicy,
+	})
+	if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+		si, err := js.StreamInfo(stream)
+		if err != nil {
+			return &queue{conn: nil}, err
+		}
+		if si.Config.Retention != nats.InterestPolicy {
+			return &queue{conn: nil}, errors.New("expected stream with interest based retention")
+		}
+		if !slices.Equal(si.Config.Subjects, subjects) {
+			return &queue{conn: nil}, fmt.Errorf("expected stream with subjects %v", subjects)
+		}
+
+	} else if err != nil {
 		return &queue{conn: nil}, err
 	}
 
