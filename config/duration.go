@@ -11,12 +11,15 @@ import (
 // We need to make our own Duration type that implements UnmarshalJSON
 // to be able to unmarshal time.Duration.
 
+// Duration helps parse the durations in the configuration as time.Duration (see https://pkg.go.dev/time#ParseDuration).
 type Duration time.Duration
 
+// MarshalJSON overrides the the default marshal function.
 func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
 }
 
+// UnmarshalJSON overrides the the default unmarshal function.
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {
