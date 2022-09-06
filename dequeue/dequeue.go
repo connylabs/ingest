@@ -79,9 +79,10 @@ func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, 
 }
 
 func (d *dequeuer) Dequeue(ctx context.Context) error {
+	level.Debug(d.l).Log("msg", "subscribing to stream", "consumer", d.consumerName, "stream", d.streamName)
 	sub, err := d.q.PullSubscribe(d.subjectName, d.consumerName, nats.BindStream(d.streamName))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to subscribe to stream: %w", err)
 	}
 
 	for {
