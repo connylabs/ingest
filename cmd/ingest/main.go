@@ -98,7 +98,7 @@ func Main() error {
 		mode:            flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
 		help:            flag.Bool("h", false, "Show usage"),
 		pluginDirectory: flag.String("plugins", filepath.Join(hd, ".config/ingest/plugins"), "The directory in which to look for plugins"),
-		configPath:      flag.String("config", filepath.Join(hd, "ingest", "config"), "The path to the configuration file for ingest"),
+		configPath:      flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
 	}
 
 	flag.Parse()
