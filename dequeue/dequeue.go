@@ -113,15 +113,15 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 			}
 			u, err := d.process(ctx, item)
 			if err != nil {
-				level.Error(d.l).Log("msg", "failed to process message", "err", err.Error())
+				level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
 				continue
 			}
-			level.Info(d.l).Log("msg", "successfully processed message", "data", string(raw.Data))
+			level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
 			if err := raw.AckSync(); err != nil {
-				level.Error(d.l).Log("msg", "failed to ack message", "err", err.Error())
+				level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID(), "name", item.Name(), "err", err.Error())
 				continue
 			}
-			level.Debug(d.l).Log("msg", "acked message", "data", string(raw.Data))
+			level.Debug(d.l).Log("msg", "acked message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
 			if u != nil {
 				uris = append(uris, u.String())
 			}
