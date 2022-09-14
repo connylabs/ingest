@@ -1,0 +1,29 @@
+sources:
+- name: foo_1
+  type: s3
+  endpoint: localhost:9000
+  insecure: true
+  bucket: destination
+  prefix: prefix1/
+  metafilesPrefix: meta/
+  accessKeyID: AKIAIOSFODNN7EXAMPLE
+  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+destinations:
+- name: bar_1
+  type: s3
+  endpoint: localhost:9000
+  insecure: true
+  bucket: destination
+  prefix: prefix1/
+  metafilesPrefix: meta/
+  accessKeyID: AKIAIOSFODNN7EXAMPLE
+  secretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+workflows:
+- name: foo_1-bar_1
+  source: foo_1
+  destinations:
+  - bar_1
+  batchSize: 1
+  interval: 300s
+  cleanUp: true
+  webhook: http://localhost:8080

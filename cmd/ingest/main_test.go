@@ -253,6 +253,8 @@ workflows:
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	sources, destintations, err := c.ConfigurePlugins(ctx, fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH))
+
 	reg := prometheus.NewRegistry()
 
 	q, err := queue.New(natsEndpoint, stream, []string{fmt.Sprintf("%s.*", subject)}, reg)
@@ -276,12 +278,11 @@ workflows:
 	{
 		// enqueue
 		appFlags := &flags{
-			logLevel:        toPtr(logLevelAll),
-			mode:            toPtr(enqueueMode),
-			subject:         toPtr(subject),
-			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
+			logLevel: toPtr(logLevelAll),
+			mode:     toPtr(enqueueMode),
+			subject:  toPtr(subject),
 		}
-		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
+		require.Nil(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
 
 		wg.Add(1)
 		go func() {
@@ -298,7 +299,7 @@ workflows:
 			consumer:        toPtr(consumer),
 			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
 		}
-		require.Nil(t, runGroup(tctx, &g, q, appFlags, c, l, reg))
+		require.Nil(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
 
 		wg.Add(1)
 		go func() {
