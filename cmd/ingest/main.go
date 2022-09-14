@@ -26,6 +26,7 @@ import (
 	"github.com/connylabs/ingest/config"
 	"github.com/connylabs/ingest/dequeue"
 	"github.com/connylabs/ingest/enqueue"
+	"github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/queue"
 	"github.com/connylabs/ingest/storage"
 	"github.com/connylabs/ingest/version"
@@ -78,6 +79,7 @@ type flags struct {
 	help            *bool
 	pluginDirectory *string
 	configPath      *string
+	dryRun          *bool
 }
 
 // Main is a convenience function that serves as a main that can return an error.
@@ -99,6 +101,7 @@ func Main() error {
 		help:            flag.Bool("h", false, "Show usage"),
 		pluginDirectory: flag.String("plugins", filepath.Join(hd, ".config/ingest/plugins"), "The directory in which to look for plugins"),
 		configPath:      flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
+		dryRun:          flag.Bool("dry-run", false, "Only load the configuration and exit without performing any copy operations"),
 	}
 
 	flag.Parse()
@@ -158,7 +161,14 @@ func Main() error {
 		}
 	}()
 	var g run.Group
-	if err := runGroup(ctx, &g, q, appFlags, c, logger, reg); err != nil {
+	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
+	if err != nil {
+		return err
+	}
+	if *appFlags.dryRun {
+		return nil
+	}
+	if err := runGroup(ctx, &g, q, appFlags, sources, destinations, c.Workflows, logger, reg); err != nil {
 		return err
 	}
 
@@ -195,13 +205,8 @@ func Main() error {
 	return g.Run()
 }
 
-func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, c *config.Config, logger log.Logger, reg prometheus.Registerer) error {
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
-	if err != nil {
-		return err
-	}
-
-	for _, w := range c.Workflows {
+func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, sources map[string]plugin.Source, destinations map[string]plugin.Destination, workflows []config.Workflow, logger log.Logger, reg prometheus.Registerer) error {
+	for _, w := range workflows {
 		logger = log.With(logger, "workflow", w.Name)
 		reg := prometheus.WrapRegistererWith(prometheus.Labels{"workflow": w.Name}, reg)
 		switch *appFlags.mode {
