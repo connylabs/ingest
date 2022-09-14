@@ -103,6 +103,17 @@ jobs:
       uses: docker/build-push-action@v2
       with:
         context: .
+        push: false
+        tags: ghcr.io/connylabs/ingest:${{ steps.sha.outputs.sha }}
+
+  smoke test:
+    needs:
+    - container
+    runs-on: ubuntu-latest
+    steps:
+    - name: Run smoke test
+      run: |
+        docker run --rm -v $(pwd)/test:/var/lib/config ghcr.io/connylabs/ingest:${{ steps.sha.outputs.sha }} --dry-run --config /var/lib/config/config.yaml
 
   push:
     if: github.event_name != 'pull_request'
