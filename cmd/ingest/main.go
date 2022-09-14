@@ -149,6 +149,13 @@ func Main() error {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
+	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
+	if err != nil {
+		return err
+	}
+	if *appFlags.dryRun {
+		return nil
+	}
 	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, []string{strings.Join([]string{*appFlags.subject, "*"}, ".")}, reg)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate queue: %w", err)
@@ -161,13 +168,6 @@ func Main() error {
 		}
 	}()
 	var g run.Group
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
-	if err != nil {
-		return err
-	}
-	if *appFlags.dryRun {
-		return nil
-	}
 	if err := runGroup(ctx, &g, q, appFlags, sources, destinations, c.Workflows, logger, reg); err != nil {
 		return err
 	}
