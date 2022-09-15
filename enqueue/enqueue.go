@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,45 +16,19 @@ type enqueuer struct {
 	q                    ingest.Queue
 	n                    ingest.Nexter
 	l                    log.Logger
-	backoff              func() backoff.BackOff
 	queueSubject         string
 	enqueueAttemptsTotal *prometheus.CounterVec
 }
 
-type configuration struct {
-	backoff func() backoff.BackOff
-}
-
-// WithBackoff can be passes as an option to disable the exponential backoff strategy.
-func WithBackoff(b bool) Option {
-	return func(c *configuration) {
-		if b {
-			c.backoff = func() backoff.BackOff { return backoff.NewExponentialBackOff() }
-			return
-		}
-		c.backoff = func() backoff.BackOff { return &backoff.StopBackOff{} }
-	}
-}
-
-// Option modifies the handler's configuration.
-type Option func(c *configuration)
-
 // New creates new ingest.Enqueuer.
-func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger, opts ...Option) (ingest.Enqueuer, error) {
+func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Registerer, l log.Logger) (ingest.Enqueuer, error) {
 	if l == nil {
 		l = log.NewNopLogger()
-	}
-	c := &configuration{
-		backoff: func() backoff.BackOff { return backoff.NewExponentialBackOff() },
-	}
-	for _, o := range opts {
-		o(c)
 	}
 	return &enqueuer{
 		q:            q,
 		n:            n,
 		l:            l,
-		backoff:      c.backoff,
 		queueSubject: queueSubject,
 		enqueueAttemptsTotal: promauto.With(r).NewCounterVec(
 			prometheus.CounterOpts{
@@ -93,7 +66,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 			item, err := e.n.Next(ctx)
 			if err != nil {
 				if err == io.EOF {
-					return backoff.Permanent(err)
+					return nil
 				}
 				level.Warn(e.l).Log("msg", "failed to get next item", "err", err.Error())
 				return err
@@ -114,10 +87,8 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 			}
 		}
 	}
-	level.Debug(e.l).Log("msg", "run backoff")
 
-	bctx := backoff.WithContext(e.backoff(), ctx)
-	if err := backoff.Retry(operation, bctx); err != nil && err != io.EOF {
+	if err := operation(); err != nil {
 		return err
 	}
 

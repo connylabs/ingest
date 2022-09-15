@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/nats-io/nats.go"
@@ -165,8 +163,7 @@ func (d *dequeuer) process(ctx context.Context, item ingest.Identifiable) (*url.
 		return nil
 	}
 
-	bctx := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
-	if err := backoff.Retry(operation, bctx); err != nil {
+	if err := operation(); err != nil {
 		d.dequeueAttemptsTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
@@ -191,15 +188,11 @@ func (d *dequeuer) callWebhook(ctx context.Context, data []string) error {
 		return err
 	}
 	defer res.Body.Close()
-	defer io.Copy(ioutil.Discard, res.Body)
+	defer io.Copy(io.Discard, res.Body)
 
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("webhook request failed with status code: %d", res.StatusCode)
 	}
 
 	return nil
-}
-
-func doneKey(name string) string {
-	return fmt.Sprintf("%s.done", name)
 }
