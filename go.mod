@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	github.com/campoy/embedmd v1.0.0
-	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/efficientgo/e2e v0.12.1
 	github.com/efficientgo/tools/core v0.0.0-20210129205121-421d0828c9a6
 	github.com/ghodss/yaml v1.0.0
