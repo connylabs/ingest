@@ -1,8 +1,72 @@
 # ingest
 
-Ingest is a library that makes it easy to build worker-queue services that use a [NATS](https://nats.io/) queue to synchronize objects from any API into an object storage system.
+Ingest is a pluggable tool that makes it easy to orchestrate the synchronization of objects from any API into an object storage system.
 
-## Usage
+## Concept
+
+Ingest includes a main binary and some plugins for some common storage systems, like S3.
+Each plugin can implement a data source, a target or both.
+The S3 plugin implements both the source and target interface, but some plugins may only be able to act as either of them.
+The plugins are loaded at runtime and enable users to implement their own custom plugins.
+
+### Workflows
+
+A workflow specifies a data source and one or more targets.
+When configured, objects from the source will be copied to all targets.
+
+## Configuration
+
+The exact configurations depends on the plugin.
+Typically, the S3 plugin requires an URL, an access key and a secret access key.
+This may differ from plugins that don't require authentication or a different kind of authentication.
+
+The following example shows the configuration to copy objects between two instances of S3:
+
+```yaml
+sources:
+- name: foo_1
+  type: s3
+  endpoint: source.amazon.com
+  bucket: source
+  prefix: prefix/
+  accessKeyID: key
+  secretAccessKey: secret
+destinations:
+- name: bar_1
+  type: s3
+  endpoint: destination.amazon.com
+  insecure: true
+  bucket: destination
+  prefix: prefix1/
+  metafilesPrefix: meta/
+  accessKeyID: key
+  secretAccessKey: secret
+workflows:
+- name: foo_1-bar_1
+  source: foo_1
+  destinations:
+  - bar_1
+  batchSize: 1
+  interval: 300s
+  cleanUp: true
+  webhook: http://localhost:8080
+```
+
+## Deployment
+
+The deployment of ingest contains of two parts.
+
+One part is called the enqueuer.
+It is started with the flag `--mode=enqueue`.
+It will scan the configured sources and push a message for each item in the source to its [NATS](https://nats.io/) stream.
+
+The other part is the dequeuer.
+It is started with the flag `--mode=dequeue`.
+It will pop messages from the NATS stream and copy each object identified by the [NATS](https://nats.io/) message to the configured targets.
+
+
+
+## Usage as a Library
 
 The library is split into two packages:
 1. `enqueue`: responsible for putting items into a queue; and
@@ -28,8 +92,6 @@ type Nexter interface {
 	Next(context.Context) (Identifiable, error)
 }
 ```
-
-`T` can either be an ID or the whole object.
 
 To use the Enqueuer create, a new one with `enqueue.New`.
 It implements the following interface:
@@ -108,17 +170,3 @@ type Dequeuer interface {
 	Dequeue(context.Context) error
 }
 ```
-
-### T
-
-This library uses generics for the `T` type, which represents an element from the source API.
-With generics, the library is able to marshal and unmarshal items when writing and reading to and from the NATS queue respectively.
-Otherwise, users would have to implement a `T` interface that has `UnmarshalFrom([]byte)` and `Marshal() []byte` methods.
-
-**Note**: the user definition of `T` must have public fields.
-Private fields will not be written to the NATS queue.
-
-## Writing Binaries
-
-This library provides a convenience `cmd` package that can be helpful for writing binaries.
-The library's `NewEnqueuerRunner` and `NewDequeuerRunner` functions return runnable functions that will execute an `Enqueuer` or a `Dequeuer` respectively forever until a given context is cancelled.
