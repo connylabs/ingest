@@ -1,17 +1,17 @@
 # ingest
 
-Ingest is a pluggable tool that makes it easy to orchestrate the synchronize of objects across multiple sources.
+Ingest is a pluggable tool that makes it easy to orchestrate the synchronization of objects from any API into an object storage system.
 
 ## Concept
 
 Ingest includes a main binary and some common plugins like s3.
-Each plugin can implement a data source, target or both.
+Each plugin can implement a data source, a target or both.
 The S3 plugin implements both the source and target interface, but some plugins may only be able to act as either of them.
 The plugins are loaded at runtime and enable users to implement their own custom plugins.
 
 ### Workflows
 
-A workflow defines a data source and one or more targets.
+A workflow specifies a data source and one or more targets.
 When configured, objects from the source will be copied to all targets.
 
 ## Configuration
@@ -20,7 +20,7 @@ The exact configurations depends on the plugin.
 Typically, the S3 plugin requires an URL, an access key and a secret access key.
 This may differ from plugins that don't require authentication or a different kind of authentication.
 
-The following example shows the configuration to copy object between two instances of S3:
+The following example shows the configuration to copy objects between two instances of S3:
 
 ```yaml
 sources:
@@ -56,7 +56,7 @@ workflows:
 
 The deployment of ingest contains of two parts.
 
-On part is called the enqueuer.
+One part is called the enqueuer.
 It is started with the flag `--mode=enqueue`.
 It will scan the configured sources and push a message for each item in the source to its [NATS](https://nats.io/) stream.
 
