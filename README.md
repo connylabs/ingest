@@ -4,7 +4,7 @@ Ingest is a pluggable tool that makes it easy to orchestrate the synchronization
 
 ## Concept
 
-Ingest includes a main binary and some common plugins like s3.
+Ingest includes a main binary and some plugins for some common storage systems, like S3.
 Each plugin can implement a data source, a target or both.
 The S3 plugin implements both the source and target interface, but some plugins may only be able to act as either of them.
 The plugins are loaded at runtime and enable users to implement their own custom plugins.
