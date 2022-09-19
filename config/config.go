@@ -161,7 +161,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]
 		if err != nil {
 			return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", c.Sources[i].Name, err)
 		}
-		sources[c.Sources[i].Name] = s
+		sources[c.Sources[i].Name] = &SourceTyper{s, c.Sources[i].Type}
 	}
 	// Instantiate the destinations.
 	for i := range c.Destinations {
@@ -172,7 +172,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]
 		if err != nil {
 			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
 		}
-		destinations[c.Destinations[i].Name] = d
+		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
 	}
 	return sources, destinations, nil
 }

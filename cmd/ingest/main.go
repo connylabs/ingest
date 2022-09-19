@@ -233,9 +233,13 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			logger := log.With(logger, "mode", dequeueMode)
 			for _, d := range w.Destinations {
 				reg := prometheus.WrapRegistererWith(prometheus.Labels{"destination": d}, reg)
+				t := "unknown"
+				if dt, ok := destinations[d].(config.DestinationTyper); ok {
+					t = dt.Type()
+				}
 				d := dequeue.New(
 					w.Webhook, sources[w.Source],
-					storage.NewInstrumentedStorage(destinations[d], reg),
+					storage.NewInstrumentedStorage(destinations[d], prometheus.WrapRegistererWith(prometheus.Labels{"plugin": t}, reg)),
 					q,
 					*appFlags.stream,
 					strings.Join([]string{*appFlags.consumer, w.Name, d}, "__"),
