@@ -101,7 +101,7 @@ func TestEnqueue(t *testing.T) {
 
 			c, err := testutil.GatherAndCount(reg, "ingest_enqueue_attempts_total")
 			require.Nil(t, err)
-			assert.Equal(t, 1, c)
+			assert.Equal(t, 2, c)
 		})
 	}
 	t.Run("failed to reset", func(t *testing.T) {
@@ -125,6 +125,6 @@ func TestEnqueue(t *testing.T) {
 		q.AssertExpectations(t)
 		c, err := testutil.GatherAndCount(reg, "ingest_enqueue_attempts_total")
 		require.Nil(t, err)
-		assert.Equal(1, c)
+		assert.Equal(2, c)
 	})
 }

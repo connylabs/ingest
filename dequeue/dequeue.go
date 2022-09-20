@@ -42,37 +42,37 @@ func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, 
 	if l == nil {
 		l = log.NewNopLogger()
 	}
-	ic := &client{
-		Client: c,
-		operationsTotal: promauto.With(r).NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "ingest_client_operations_total",
-				Help: "Number of client operations",
-			}, []string{"operation", "result"}),
-	}
-	return &dequeuer{
-		c:            ic,
-		s:            s,
-		l:            l,
-		r:            r,
-		q:            q,
-		cleanUp:      cleanUp,
-		webhookURL:   webhookURL,
-		batchSize:    batchSize,
-		streamName:   streamName,
-		consumerName: consumerName,
-		subjectName:  subjectName,
 
-		dequeueAttemptsTotal: promauto.With(r).NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "ingest_dequeue_attempts_total",
-				Help: "Number of dequeue sync attempts.",
-			}, []string{"result"}),
-		webhookRequestsTotal: promauto.With(r).NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "ingest_webhook_http_client_requests_total",
-				Help: "The number webhook HTTP requests.",
-			}, []string{"result"}),
+	dequeueAttemptsTotal := promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_dequeue_attempts_total",
+		Help: "Number of dequeue sync attempts.",
+	}, []string{"result"})
+
+	webhookRequestsTotal := promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_webhook_http_client_requests_total",
+		Help: "The number webhook HTTP requests.",
+	}, []string{"result"})
+
+	for _, c := range []*prometheus.CounterVec{dequeueAttemptsTotal, webhookRequestsTotal} {
+		for _, r := range []string{"error", "success"} {
+			c.WithLabelValues(r).Add(0)
+		}
+	}
+
+	return &dequeuer{
+		c:                    newInstrumentedClient(c, r),
+		s:                    s,
+		l:                    l,
+		r:                    r,
+		q:                    q,
+		cleanUp:              cleanUp,
+		webhookURL:           webhookURL,
+		batchSize:            batchSize,
+		streamName:           streamName,
+		consumerName:         consumerName,
+		subjectName:          subjectName,
+		dequeueAttemptsTotal: dequeueAttemptsTotal,
+		webhookRequestsTotal: webhookRequestsTotal,
 	}
 }
 

@@ -56,13 +56,20 @@ func (i instrumentedStorage) Store(ctx context.Context, element ingest.Identifia
 
 // NewInstrumentedStorage adds Prometheus metrics to any Storage.
 func NewInstrumentedStorage(s Storage, r prometheus.Registerer) Storage {
+	operationsTotal := promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_storage_operations_total",
+		Help: "Number of storage operations.",
+	}, []string{"operation", "result"})
+
+	for _, o := range []string{"stat", "store"} {
+		for _, r := range []string{"error", "success"} {
+			operationsTotal.WithLabelValues(o, r).Add(0)
+		}
+	}
+
 	return &instrumentedStorage{
 		s,
-		promauto.With(r).NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "ingest_storage_operations_total",
-				Help: "Number of storage operations.",
-			}, []string{"operation", "result"}),
+		operationsTotal,
 	}
 }
 
