@@ -96,19 +96,19 @@ func TestDequeue(t *testing.T) {
 		{
 			c, err := testutil.GatherAndCount(reg, "ingest_client_operations_total")
 			require.Nil(t, err)
-			assert.Equal(t, 1, c)
+			assert.Equal(t, 4, c)
 
 		}
 		{
 			c, err := testutil.GatherAndCount(reg, "ingest_dequeue_attempts_total")
 			require.Nil(t, err)
-			assert.Equal(t, 1, c)
+			assert.Equal(t, 2, c)
 
 		}
 		{
 			c, err := testutil.GatherAndCount(reg, "ingest_webhook_http_client_requests_total")
 			require.Nil(t, err)
-			assert.Equal(t, 0, c, "ingest_webhook_http_client_requests_total")
+			assert.Equal(t, 2, c, "ingest_webhook_http_client_requests_total")
 
 		}
 	})

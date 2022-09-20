@@ -25,16 +25,22 @@ func New(n ingest.Nexter, queueSubject string, q ingest.Queue, r prometheus.Regi
 	if l == nil {
 		l = log.NewNopLogger()
 	}
+
+	enqueueAttemptsTotal := promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_enqueue_attempts_total",
+		Help: "Number of enqueue sync attempts.",
+	}, []string{"result"})
+
+	for _, r := range []string{"error", "success"} {
+		enqueueAttemptsTotal.WithLabelValues(r).Add(0)
+	}
+
 	return &enqueuer{
-		q:            q,
-		n:            n,
-		l:            l,
-		queueSubject: queueSubject,
-		enqueueAttemptsTotal: promauto.With(r).NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "ingest_enqueue_attempts_total",
-				Help: "Number of enqueue sync attempts.",
-			}, []string{"result"}),
+		q:                    q,
+		n:                    n,
+		l:                    l,
+		queueSubject:         queueSubject,
+		enqueueAttemptsTotal: enqueueAttemptsTotal,
 	}, nil
 }
 
@@ -55,8 +61,7 @@ func (e *enqueuer) Enqueue(ctx context.Context) error {
 // Note: Enqueue is not safe to call concurrently because it modifies the state
 // of a single, shared Nexter.
 func (e *enqueuer) enqueue(ctx context.Context) error {
-	err := e.n.Reset(ctx)
-	if err != nil {
+	if err := e.n.Reset(ctx); err != nil {
 		return err
 	}
 	operation := func() error {

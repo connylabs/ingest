@@ -51,11 +51,16 @@ func New(url string, stream string, subjects []string, reg prometheus.Registerer
 		return &queue{conn: nil}, err
 	}
 
-	queueOperationsTotalCounter := promauto.With(reg).NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingest_queue_operations_total",
-			Help: "The total number of queue operations.",
-		}, []string{"operation", "result"})
+	queueOperationsTotalCounter := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_queue_operations_total",
+		Help: "The total number of queue operations.",
+	}, []string{"operation", "result"})
+
+	for _, o := range []string{"pop", "publish"} {
+		for _, r := range []string{"error", "success"} {
+			queueOperationsTotalCounter.WithLabelValues(o, r).Add(0)
+		}
+	}
 
 	return &queue{conn: conn, js: js, queueOperationsTotalCounter: queueOperationsTotalCounter}, nil
 }

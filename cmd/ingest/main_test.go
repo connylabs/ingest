@@ -254,6 +254,7 @@ workflows:
 	defer cancel()
 
 	sources, destintations, err := c.ConfigurePlugins(ctx, fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH))
+	require.Nil(t, err)
 
 	reg := prometheus.NewRegistry()
 
