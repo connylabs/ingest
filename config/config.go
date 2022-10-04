@@ -184,8 +184,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 func firstPath(paths []string, filename string) (string, error) {
 	for _, p := range paths {
 		fpath := filepath.Join(p, filename)
-		_, err := os.Stat(fpath)
-		if err == nil {
+		if _, err := os.Stat(fpath); err == nil {
 			return fpath, nil
 		}
 	}
