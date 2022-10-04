@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	stdlog "log"
 	"net"
@@ -20,6 +19,7 @@ import (
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	flag "github.com/spf13/pflag"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/cmd"
@@ -68,18 +68,18 @@ func main() {
 }
 
 type flags struct {
-	listenInternal  *string
-	queueEndpoint   *string
-	stream          *string
-	subject         *string
-	consumer        *string
-	printVersion    *bool
-	logLevel        *string
-	mode            *string
-	help            *bool
-	pluginDirectory *string
-	configPath      *string
-	dryRun          *bool
+	listenInternal    *string
+	queueEndpoint     *string
+	stream            *string
+	subject           *string
+	consumer          *string
+	printVersion      *bool
+	logLevel          *string
+	mode              *string
+	help              *bool
+	pluginDirectories *[]string
+	configPath        *string
+	dryRun            *bool
 }
 
 // Main is a convenience function that serves as a main that can return an error.
@@ -90,18 +90,18 @@ func Main() error {
 	}
 
 	appFlags := &flags{
-		listenInternal:  flag.String("listen", ":9090", "The address at which to listen for health and metrics"),
-		queueEndpoint:   flag.String("queue-endpoint", "nats://localhost:4222", "The queue endpoint to which to connect"),
-		stream:          flag.String("stream", "ingest", "The stream name to which to connect"),
-		subject:         flag.String("subject", "ingest", "The subject name to which to connect"),
-		consumer:        flag.String("consumer", "ingest", "The prefix to use for dymanically created consumer names"),
-		printVersion:    flag.Bool("version", false, "Show version"),
-		logLevel:        flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
-		mode:            flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
-		help:            flag.Bool("h", false, "Show usage"),
-		pluginDirectory: flag.String("plugins", filepath.Join(hd, ".config/ingest/plugins"), "The directory in which to look for plugins"),
-		configPath:      flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
-		dryRun:          flag.Bool("dry-run", false, "Only load the configuration and exit without performing any copy operations"),
+		listenInternal:    flag.String("listen", ":9090", "The address at which to listen for health and metrics"),
+		queueEndpoint:     flag.String("queue-endpoint", "nats://localhost:4222", "The queue endpoint to which to connect"),
+		stream:            flag.String("stream", "ingest", "The stream name to which to connect"),
+		subject:           flag.String("subject", "ingest", "The subject name to which to connect"),
+		consumer:          flag.String("consumer", "ingest", "The prefix to use for dymanically created consumer names"),
+		printVersion:      flag.Bool("version", false, "Show version"),
+		logLevel:          flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
+		mode:              flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
+		help:              flag.Bool("h", false, "Show usage"),
+		pluginDirectories: flag.StringSlice("plugins", []string{filepath.Join(hd, ".config/ingest/plugins")}, "The directories in which to look for plugins. The plugin found first will take precedence"),
+		configPath:        flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
+		dryRun:            flag.Bool("dry-run", false, "Only load the configuration and exit without performing any copy operations"),
 	}
 
 	flag.Parse()
@@ -149,7 +149,7 @@ func Main() error {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectory)
+	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectories)
 	if err != nil {
 		return err
 	}

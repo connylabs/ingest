@@ -90,7 +90,7 @@ type Config struct {
 }
 
 // ConfigurePlugins configures the plugins found in path.
-func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
+func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
 	// Collect all of the named plugins.
 	plugins := make(map[string]plugin.Plugin)
 	sources := make(map[string]plugin.Source)
@@ -138,7 +138,11 @@ func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]
 	}
 	// Instantiate the plugins.
 	for pn := range pluginNames {
-		raw, err := stdplugin.Open(filepath.Join(path, pn))
+		pp, err := firstPath(paths, pn)
+		if err != nil {
+			return nil, nil, fmt.Errorf("none of the given paths contains the filename %s: %w", pn, err)
+		}
+		raw, err := stdplugin.Open(pp)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not open plugin %q: %w", pn, err)
 		}
@@ -175,4 +179,15 @@ func (c *Config) ConfigurePlugins(ctx context.Context, path string) (map[string]
 		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
 	}
 	return sources, destinations, nil
+}
+
+func firstPath(paths []string, filename string) (string, error) {
+	for _, p := range paths {
+		fpath := filepath.Join(p, filename)
+		_, err := os.Stat(fpath)
+		if err == nil {
+			return fpath, nil
+		}
+	}
+	return "", os.ErrNotExist
 }

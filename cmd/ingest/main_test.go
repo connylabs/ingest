@@ -253,7 +253,7 @@ workflows:
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sources, destintations, err := c.ConfigurePlugins(ctx, fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH))
+	sources, destintations, err := c.ConfigurePlugins(ctx, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)})
 	require.Nil(t, err)
 
 	reg := prometheus.NewRegistry()
@@ -294,11 +294,11 @@ workflows:
 	{
 		// dequeue
 		appFlags := &flags{
-			mode:            toPtr(dequeueMode),
-			subject:         toPtr(subject),
-			stream:          toPtr(stream),
-			consumer:        toPtr(consumer),
-			pluginDirectory: toPtr(fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)),
+			mode:              toPtr(dequeueMode),
+			subject:           toPtr(subject),
+			stream:            toPtr(stream),
+			consumer:          toPtr(consumer),
+			pluginDirectories: toPtr([]string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)}),
 		}
 		require.Nil(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
 
