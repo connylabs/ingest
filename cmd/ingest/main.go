@@ -99,7 +99,7 @@ func Main() error {
 		logLevel:          flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
 		mode:              flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
 		help:              flag.Bool("h", false, "Show usage"),
-		pluginDirectories: flag.StringSlice("plugins", []string{filepath.Join(hd, ".config/ingest/plugins")}, "The directories in which to look for plugins. The plugin found first will take precedence"),
+		pluginDirectories: flag.StringSlice("plugins", []string{filepath.Join(hd, ".config/ingest/plugins")}, "The directories in which to look for plugins. Directories are searched in the order specified with the first match taking precedence"),
 		configPath:        flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
 		dryRun:            flag.Bool("dry-run", false, "Only load the configuration and exit without performing any copy operations"),
 	}
