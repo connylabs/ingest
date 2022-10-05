@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	stdplugin "plugin"
+	"syscall"
 	"time"
 
 	"github.com/ghodss/yaml"
@@ -182,12 +183,14 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 }
 
 func firstPath(paths []string, filename string) (string, error) {
-	err := os.ErrNotExist
 	for _, p := range paths {
 		fpath := filepath.Join(p, filename)
-		if _, err = os.Stat(fpath); err == nil {
-			return fpath, nil
+		if _, err := os.Stat(fpath); errors.Is(err, syscall.ENOENT) {
+			continue
+		} else if err != nil {
+			return "", err
 		}
+		return fpath, nil
 	}
-	return "", err
+	return "", os.ErrNotExist
 }
