@@ -78,6 +78,7 @@ type Workflow struct {
 	Destinations []string
 	CleanUp      bool
 	Interval     *Duration
+	Concurrency  int
 	BatchSize    int
 	Webhook      string
 }
@@ -135,6 +136,9 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 		}
 		if w.BatchSize == 0 {
 			c.Workflows[i].BatchSize = ingest.DefaultBatchSize
+		}
+		if w.Concurrency == 0 {
+			c.Workflows[i].Concurrency = c.Workflows[i].BatchSize
 		}
 	}
 	// Instantiate the plugins.
