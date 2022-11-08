@@ -245,6 +245,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 					strings.Join([]string{*appFlags.consumer, w.Name, d}, "__"),
 					strings.Join([]string{*appFlags.subject, w.Name}, "."),
 					w.BatchSize,
+					w.Concurrency,
 					w.CleanUp,
 					logger,
 					reg,

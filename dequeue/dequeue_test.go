@@ -37,7 +37,7 @@ func TestDequeue(t *testing.T) {
 
 		sub.On("Close").Return(nil).Once()
 
-		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -72,7 +72,7 @@ func TestDequeue(t *testing.T) {
 		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), fs.ErrNotExist).Once()
 		s.On("Store", mock.Anything, ingest.NewCodec(_t), mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
 
-		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -134,7 +134,7 @@ func TestDequeue(t *testing.T) {
 
 		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), nil).Once()
 
-		d := New("", c, s, q, "str", "con", "sub", 1, true, logger, reg)
+		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()

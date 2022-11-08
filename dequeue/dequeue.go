@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -30,6 +31,7 @@ type dequeuer struct {
 	cleanUp              bool
 	webhookURL           string
 	batchSize            int
+	concurrency          int
 	streamName           string
 	consumerName         string
 	subjectName          string
@@ -38,7 +40,7 @@ type dequeuer struct {
 }
 
 // New creates a new ingest.Dequeuer.
-func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, streamName, consumerName, subjectName string, batchSize int, cleanUp bool, l log.Logger, r prometheus.Registerer) ingest.Dequeuer {
+func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, streamName, consumerName, subjectName string, batchSize, concurrency int, cleanUp bool, l log.Logger, r prometheus.Registerer) ingest.Dequeuer {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
@@ -68,6 +70,7 @@ func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, 
 		cleanUp:              cleanUp,
 		webhookURL:           webhookURL,
 		batchSize:            batchSize,
+		concurrency:          concurrency,
 		streamName:           streamName,
 		consumerName:         consumerName,
 		subjectName:          subjectName,
@@ -99,34 +102,51 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		}
 		level.Info(d.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
 
-		uris := make([]string, 0, d.batchSize)
-		for _, raw := range msgs {
-			// item, ok := any((*new(T))).(ingest.Codec)
-			// if !ok {
-			item := new(ingest.SimpleCodec)
-			//}
-			if err := item.Unmarshal(raw.Data); err != nil {
-				level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
-				continue
-			}
-			u, err := d.process(ctx, item)
-			if err != nil {
-				level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
-			} else {
-				level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
-			}
-			if err := raw.AckSync(); err != nil {
-				level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID(), "name", item.Name(), "err", err.Error())
-				continue
-			}
-			level.Debug(d.l).Log("msg", "acked message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
-			if u != nil {
-				uris = append(uris, u.String())
+		g, ctx := errgroup.WithContext(ctx)
+		g.SetLimit(d.concurrency)
+		uris := make([]string, d.batchSize)
+		for i, raw := range msgs {
+			i, raw := i, raw
+			g.Go(func() error {
+				// item, ok := any((*new(T))).(ingest.Codec)
+				// if !ok {
+				item := new(ingest.SimpleCodec)
+				//}
+				if err := item.Unmarshal(raw.Data); err != nil {
+					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
+					return err
+				}
+				u, err := d.process(ctx, item)
+				if err != nil {
+					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+				} else {
+					level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+				}
+				if err := raw.AckSync(); err != nil {
+					level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+					return err
+				}
+				level.Debug(d.l).Log("msg", "acked message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+				if u != nil {
+					uris[i] = u.String()
+				}
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			level.Error(d.l).Log("msg", "at least one go routine returned an error", "err", err.Error())
+		}
+
+		filteredUIRs := make([]string, 0, d.batchSize)
+		for _, uri := range uris {
+			if uri != "" {
+				filteredUIRs = append(filteredUIRs, uri)
 			}
 		}
 
-		if d.webhookURL != "" && len(uris) > 0 {
-			if err := d.callWebhook(ctx, uris); err != nil {
+		if d.webhookURL != "" && len(filteredUIRs) > 0 {
+			if err := d.callWebhook(ctx, filteredUIRs); err != nil {
 				d.webhookRequestsTotal.WithLabelValues("error").Inc()
 				level.Warn(d.l).Log("warn", "failed to call a webhook", "msg", err.Error())
 				continue
