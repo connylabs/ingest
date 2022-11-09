@@ -24,7 +24,7 @@ type Storage interface {
 	// Stat can be used to find information about the object corresponding to the given element.
 	// If the object does not exist, then Stat returns an error satisfied by os.IsNotExist.
 	Stat(ctx context.Context, element ingest.SimpleCodec) (*ObjectInfo, error)
-	Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error)
+	Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error)
 }
 
 type instrumentedStorage struct {
@@ -42,7 +42,7 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.SimpleCode
 	return oi, err
 }
 
-func (i instrumentedStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
+func (i instrumentedStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
 	u, err := i.Storage.Store(ctx, element, download)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
@@ -106,7 +106,7 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*Ob
 	return o0, err.Err()
 }
 
-func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
+func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
 	var u0 *url.URL
 	ch := make(chan error, len(m))
 	for i := range m {

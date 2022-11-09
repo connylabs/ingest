@@ -33,7 +33,7 @@ func newInstrumentedClient(c ingest.Client, r prometheus.Registerer) ingest.Clie
 	}
 }
 
-func (c *instrumentedClient) Download(ctx context.Context, item ingest.SimpleCodec) (o ingest.Object, err error) {
+func (c *instrumentedClient) Download(ctx context.Context, item ingest.SimpleCodec) (o *ingest.Object, err error) {
 	o, err = c.Client.Download(ctx, item)
 	if err != nil {
 		c.operationsTotal.WithLabelValues("download", "error").Inc()

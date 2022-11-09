@@ -123,10 +123,6 @@ mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	$(MOCKERY_BINARY) --filename $(@F) --name="Subscription"
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
-mocks/object.go: ingest.go $(MOCKERY_BINARY)
-	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Object"
-
 mocks/nexter.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name="Nexter"

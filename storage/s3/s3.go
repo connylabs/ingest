@@ -66,7 +66,7 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
 	u := ms.url(element)
 
 	object, err := download(ctx, element)
@@ -78,9 +78,9 @@ func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, d
 		ctx,
 		ms.bucket,
 		u.Path,
-		object,
-		object.Len(),
-		minio.PutObjectOptions{ContentType: object.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
+		object.Reader,
+		object.Len,
+		minio.PutObjectOptions{ContentType: object.MimeType}, // I guess we can remove the mime type detection because we always use tar.gz files.
 	); err != nil {
 		return nil, err
 	}

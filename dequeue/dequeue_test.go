@@ -59,7 +59,6 @@ func TestDequeue(t *testing.T) {
 		_t := ingest.NewCodec("bar", "foo")
 		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
-		obj := new(mocks.Object)
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
 
@@ -83,7 +82,6 @@ func TestDequeue(t *testing.T) {
 		q.AssertExpectations(t)
 		sub.AssertExpectations(t)
 		s.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 
 		{
@@ -122,7 +120,6 @@ func TestDequeue(t *testing.T) {
 		_t := ingest.NewCodec("bar", "foo")
 		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
-		obj := new(mocks.Object)
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
 
@@ -145,7 +142,6 @@ func TestDequeue(t *testing.T) {
 		q.AssertExpectations(t)
 		sub.AssertExpectations(t)
 		s.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 }

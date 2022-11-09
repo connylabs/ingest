@@ -21,12 +21,12 @@ func TestStore(t *testing.T) {
 		mc := new(mocks.MinioClient)
 
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
+		obj := &ingest.Object{
+			MimeType: "plain/text",
+			Len:      64,
+		}
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
-
-		obj.On("Len").Return(int64(64)).Once()
-		obj.On("MimeType").Return("plain/text").Once()
 
 		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once().
 			On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
@@ -46,7 +46,6 @@ func TestStore(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 	t.Run("not using meta objects", func(t *testing.T) {
@@ -54,12 +53,12 @@ func TestStore(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
+		obj := &ingest.Object{
+			MimeType: "plain/text",
+			Len:      64,
+		}
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
-
-		obj.On("Len").Return(int64(64)).Once()
-		obj.On("MimeType").Return("plain/text").Once()
 
 		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 
@@ -78,7 +77,6 @@ func TestStore(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 }
@@ -89,7 +87,6 @@ func TestStat(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
 			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
@@ -108,7 +105,6 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 	t.Run("object, no meta object", func(t *testing.T) {
@@ -116,7 +112,6 @@ func TestStat(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
 
 		mc.On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once().
@@ -137,7 +132,6 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 	t.Run("no object, meta object", func(t *testing.T) {
@@ -145,7 +139,6 @@ func TestStat(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
@@ -164,7 +157,6 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 	t.Run("object exists", func(t *testing.T) {
@@ -172,7 +164,6 @@ func TestStat(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
@@ -191,7 +182,6 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 	t.Run("no object", func(t *testing.T) {
@@ -199,7 +189,6 @@ func TestStat(t *testing.T) {
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
-		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
@@ -217,7 +206,6 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		obj.AssertExpectations(t)
 		c.AssertExpectations(t)
 	})
 }

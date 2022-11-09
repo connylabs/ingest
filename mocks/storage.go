@@ -42,11 +42,11 @@ func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*stora
 }
 
 // Store provides a mock function with given fields: ctx, element, download
-func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
+func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
 	ret := _m.Called(ctx, element, download)
 
 	var r0 *url.URL
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) *url.URL); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) *url.URL); ok {
 		r0 = rf(ctx, element, download)
 	} else {
 		if ret.Get(0) != nil {
@@ -55,7 +55,7 @@ func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, downlo
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) error); ok {
 		r1 = rf(ctx, element, download)
 	} else {
 		r1 = ret.Error(1)

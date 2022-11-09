@@ -48,12 +48,12 @@ type Dequeuer interface {
 }
 
 // Object represents an object that can be uploaded into object storage.
-type Object interface {
+type Object struct {
 	// MimeType is the HTTP-style Content-Type of the object.
-	MimeType() string
+	MimeType string
 	// Len is the length of the underlying buffer of the io.Reader.
-	Len() int64
-	io.Reader
+	Len    int64
+	Reader io.Reader
 }
 
 // Client is able to create an Object from a T.
@@ -64,7 +64,7 @@ type Client interface {
 	// download the object from an API,
 	// however in some cases it is possible to create
 	// the Object directly from the T.
-	Download(context.Context, SimpleCodec) (Object, error)
+	Download(context.Context, SimpleCodec) (*Object, error)
 	// CleanUp is called after an object is uploaded
 	// to object storage. In most cases, this will
 	// serve the purpose of removing the object from

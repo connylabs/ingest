@@ -29,15 +29,15 @@ func (_m *Client) CleanUp(_a0 context.Context, _a1 ingest.SimpleCodec) error {
 }
 
 // Download provides a mock function with given fields: _a0, _a1
-func (_m *Client) Download(_a0 context.Context, _a1 ingest.SimpleCodec) (ingest.Object, error) {
+func (_m *Client) Download(_a0 context.Context, _a1 ingest.SimpleCodec) (*ingest.Object, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 ingest.Object
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec) ingest.Object); ok {
+	var r0 *ingest.Object
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec) *ingest.Object); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(ingest.Object)
+			r0 = ret.Get(0).(*ingest.Object)
 		}
 	}
 

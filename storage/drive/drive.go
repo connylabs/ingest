@@ -75,7 +75,7 @@ func (ds *driveStorage) find(ctx context.Context, parent string, parts []string)
 	return nil, fs.ErrNotExist
 }
 
-func (ds *driveStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
+func (ds *driveStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
 	file := &drive.File{
 		Name:    element.Name(),
 		Parents: []string{ds.p},
@@ -86,7 +86,7 @@ func (ds *driveStorage) Store(ctx context.Context, element ingest.SimpleCodec, d
 		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
 	}
 
-	f, err := ds.s.Files.Create(file).Media(object).SupportsAllDrives(true).Context(ctx).Do()
+	f, err := ds.s.Files.Create(file).Media(object.Reader).SupportsAllDrives(true).Context(ctx).Do()
 	if err != nil {
 		return nil, err
 	}

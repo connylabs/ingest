@@ -154,30 +154,12 @@ func (s *source) Next(_ context.Context) (*ingest.SimpleCodec, error) {
 	return nil, io.EOF
 }
 
-type object struct {
-	mo       *minio.Object
-	size     int64
-	mimeType string
-}
-
-func (o *object) MimeType() string {
-	return o.mimeType
-}
-
-func (o *object) Len() int64 {
-	return o.size
-}
-
-func (o *object) Read(p []byte) (int, error) {
-	return o.mo.Read(p)
-}
-
 func (s *source) CleanUp(ctx context.Context, i ingest.SimpleCodec) error {
 	return s.mc.RemoveObject(ctx, s.bucket, i.ID(), minio.RemoveObjectOptions{})
 }
 
 // Download will take an Element and download it from S3
-func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (ingest.Object, error) {
+func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (*ingest.Object, error) {
 	o, err := s.mc.GetObject(ctx, s.bucket, i.ID(), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object: %w", err)
@@ -187,5 +169,9 @@ func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (ingest.Obj
 		return nil, fmt.Errorf("failed to get stat: %w", err)
 	}
 
-	return &object{o, stat.Size, stat.ContentType}, nil
+	return &ingest.Object{
+		Reader:   o,
+		Len:      stat.Size,
+		MimeType: stat.ContentType,
+	}, nil
 }
