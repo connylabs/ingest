@@ -56,8 +56,8 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
-		_t := &mocks.T{MockID: "foo"}
-		data, _ := ingest.NewCodec(_t).Marshal()
+		_t := ingest.NewCodec("bar", "foo")
+		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)
 
@@ -69,8 +69,8 @@ func TestDequeue(t *testing.T) {
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 
-		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), fs.ErrNotExist).Once()
-		s.On("Store", mock.Anything, ingest.NewCodec(_t), mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
+		s.On("Stat", mock.Anything, *_t).Return((*storage.ObjectInfo)(nil), fs.ErrNotExist).Once()
+		s.On("Store", mock.Anything, *_t, mock.Anything).Return(&url.URL{Scheme: "s3", Host: "bucket", Path: "prefix/foo"}, nil).Once()
 
 		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 
@@ -119,8 +119,8 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
-		_t := &mocks.T{MockID: "foo"}
-		data, _ := ingest.NewCodec(_t).Marshal()
+		_t := ingest.NewCodec("bar", "foo")
+		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
 		obj := new(mocks.Object)
 
@@ -132,7 +132,7 @@ func TestDequeue(t *testing.T) {
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 
-		s.On("Stat", mock.Anything, ingest.NewCodec(_t)).Return((*storage.ObjectInfo)(nil), nil).Once()
+		s.On("Stat", mock.Anything, *_t).Return((*storage.ObjectInfo)(nil), nil).Once()
 
 		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 

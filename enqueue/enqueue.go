@@ -68,17 +68,13 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 		level.Info(e.l).Log("msg", "getting next item from source")
 		for {
 			level.Debug(e.l).Log("msg", "attempting to get next item")
-			item, err := e.n.Next(ctx)
+			codec, err := e.n.Next(ctx)
 			if err != nil {
 				if err == io.EOF {
 					return nil
 				}
 				level.Warn(e.l).Log("msg", "failed to get next item", "err", err.Error())
 				return err
-			}
-			codec, ok := any(item).(ingest.Codec)
-			if !ok {
-				codec = &ingest.SimpleCodec{XID: item.ID(), XName: item.Name()}
 			}
 			data, err := codec.Marshal()
 			if err != nil {

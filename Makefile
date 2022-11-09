@@ -123,13 +123,18 @@ mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	$(MOCKERY_BINARY) --filename $(@F) --name="Subscription"
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
-mocks/identifiable.go: ingest.go $(MOCKERY_BINARY)
-	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Identifiable"
-
 mocks/object.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name="Object"
+
+mocks/nexter.go: ingest.go $(MOCKERY_BINARY)
+	rm -f $@
+	$(MOCKERY_BINARY) --filename $(@F) --name="Nexter"
+
+mocks/storage.go: storage/storage.go $(MOCKERY_BINARY)
+	rm -f $@
+	$(MOCKERY_BINARY) --filename $(@F) --dir storage --name="Storage"
+
 
 mocks/minio_client.go: storage/s3/s3.go $(MOCKERY_BINARY)
 	rm -f $@

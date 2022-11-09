@@ -21,11 +21,11 @@ import (
 func TestEnqueue(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		expect func() (*mocks.Queue, *mocks.Nexter, *mocks.T)
+		expect func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec)
 	}{
 		{
 			name: "nexter returns EOF",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
 				q := new(mocks.Queue)
 				n := new(mocks.Nexter)
 				n.On("Reset", mock.Anything).Return(nil).Once()
@@ -35,7 +35,7 @@ func TestEnqueue(t *testing.T) {
 		},
 		{
 			name: "nexter returns nil",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
 				q := new(mocks.Queue)
 				n := new(mocks.Nexter)
 				n.On("Reset", mock.Anything).Return(nil).Once()
@@ -45,9 +45,9 @@ func TestEnqueue(t *testing.T) {
 		},
 		{
 			name: "one entry",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
-				t := &mocks.T{MockID: "foo"}
-				data, _ := ingest.NewCodec(t).Marshal()
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+				t := ingest.NewCodec("foo", "foo")
+				data, _ := t.Marshal()
 				q := new(mocks.Queue)
 				q.On("Publish", "sub", data).Return(nil).Once()
 				n := new(mocks.Nexter)
@@ -59,11 +59,11 @@ func TestEnqueue(t *testing.T) {
 		},
 		{
 			name: "two entries",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *mocks.T) {
-				t := &mocks.T{MockID: "foo"}
-				data, _ := ingest.NewCodec(t).Marshal()
-				t2 := &mocks.T{MockID: "foo2"}
-				data2, _ := ingest.NewCodec(t2).Marshal()
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+				t := ingest.NewCodec("foo", "foo")
+				data, _ := t.Marshal()
+				t2 := ingest.NewCodec("foo2", "foo2")
+				data2, _ := t2.Marshal()
 				q := new(mocks.Queue)
 				q.
 					On("Publish", "sub", data).Return(nil).Once().

@@ -134,7 +134,7 @@ func (s *source) Reset(ctx context.Context) error {
 }
 
 // Next ignores the context in this implementation
-func (s *source) Next(_ context.Context) (ingest.Identifiable, error) {
+func (s *source) Next(_ context.Context) (*ingest.SimpleCodec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -143,11 +143,12 @@ func (s *source) Next(_ context.Context) (ingest.Identifiable, error) {
 		if oi.Err != nil {
 			return nil, oi.Err
 		}
-		return &Element{
+		e := Element{
 			bucket: s.bucket,
 			prefix: s.prefix,
 			name:   strings.TrimPrefix(oi.Key, s.prefix),
-		}, nil
+		}
+		return ingest.NewCodec(e.ID(), e.Name()), nil
 	}
 
 	return nil, io.EOF
@@ -171,12 +172,12 @@ func (o *object) Read(p []byte) (int, error) {
 	return o.mo.Read(p)
 }
 
-func (s *source) CleanUp(ctx context.Context, i ingest.Identifiable) error {
+func (s *source) CleanUp(ctx context.Context, i ingest.SimpleCodec) error {
 	return s.mc.RemoveObject(ctx, s.bucket, i.ID(), minio.RemoveObjectOptions{})
 }
 
 // Download will take an Element and download it from S3
-func (s *source) Download(ctx context.Context, i ingest.Identifiable) (ingest.Object, error) {
+func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (ingest.Object, error) {
 	o, err := s.mc.GetObject(ctx, s.bucket, i.ID(), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object: %w", err)

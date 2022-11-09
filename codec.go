@@ -32,6 +32,6 @@ func (s *SimpleCodec) Unmarshal(data []byte) error {
 }
 
 // NewCodec creates a Codec from an existing Identifiable.
-func NewCodec(element Identifiable) Codec {
-	return &SimpleCodec{XID: element.ID(), XName: element.Name()}
+func NewCodec(id, name string) *SimpleCodec {
+	return &SimpleCodec{XID: id, XName: name}
 }

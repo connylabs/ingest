@@ -10,6 +10,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/mocks"
 )
 
@@ -18,7 +19,8 @@ func TestStore(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
@@ -33,7 +35,7 @@ func TestStore(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, _t, c.Download)
+		u, err := s.Store(ctx, *_t, c.Download)
 		if err != nil {
 			t.Error(err)
 		}
@@ -51,7 +53,7 @@ func TestStore(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
@@ -65,7 +67,7 @@ func TestStore(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, _t, c.Download)
+		u, err := s.Store(ctx, *_t, c.Download)
 		if err != nil {
 			t.Error(err)
 		}
@@ -86,7 +88,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
@@ -96,7 +98,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, _t)
+		o, err := s.Stat(ctx, *_t)
 		if !os.IsNotExist(err) {
 			t.Errorf("expected error to satisfy os.IsNotExist, got %v", err)
 		}
@@ -113,7 +115,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		mc.On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
@@ -124,7 +126,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, _t)
+		o, err := s.Stat(ctx, *_t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -142,7 +144,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
@@ -151,7 +153,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, _t)
+		o, err := s.Stat(ctx, *_t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -169,7 +171,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
@@ -178,7 +180,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, _t)
+		o, err := s.Stat(ctx, *_t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -196,7 +198,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
-		_t := &mocks.T{MockID: "foo", MockName: "bar"}
+		_t := ingest.NewCodec("foo", "bar")
 		obj := new(mocks.Object)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
@@ -205,7 +207,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, _t)
+		o, err := s.Stat(ctx, *_t)
 		if !os.IsNotExist(err) {
 			t.Errorf("expected error to satisfy os.IsNotExist, got %v", err)
 		}

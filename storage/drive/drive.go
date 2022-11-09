@@ -37,7 +37,7 @@ func New(folder string, service *drive.Service, l log.Logger) (storage.Storage, 
 	return ds, nil
 }
 
-func (ds *driveStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
+func (ds *driveStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
 	f, err := ds.find(ctx, ds.p, []string{element.Name()})
 	if err != nil {
 		return nil, err
@@ -75,7 +75,7 @@ func (ds *driveStorage) find(ctx context.Context, parent string, parts []string)
 	return nil, fs.ErrNotExist
 }
 
-func (ds *driveStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
+func (ds *driveStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
 	file := &drive.File{
 		Name:    element.Name(),
 		Parents: []string{ds.p},

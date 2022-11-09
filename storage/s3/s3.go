@@ -45,7 +45,7 @@ func New(bucket string, prefix string, metafilesPrefix string, mc MinioClient, l
 	}
 }
 
-func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
+func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
 	synced, done, err := ms.isObjectSynced(ctx, element.Name(), ms.useDone)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (ingest.Object, error)) (*url.URL, error) {
 	u := ms.url(element)
 
 	object, err := download(ctx, element)
@@ -94,7 +94,7 @@ func (ms *minioStorage) Store(ctx context.Context, element ingest.Identifiable, 
 	return u, nil
 }
 
-func (ms *minioStorage) url(element ingest.Identifiable) *url.URL {
+func (ms *minioStorage) url(element ingest.SimpleCodec) *url.URL {
 	return &url.URL{
 		Scheme: "s3",
 		Host:   ms.bucket,

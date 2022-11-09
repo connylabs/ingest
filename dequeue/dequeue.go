@@ -116,7 +116,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 					return err
 				}
-				u, err := d.process(ctx, item)
+				u, err := d.process(ctx, *item)
 				if err != nil {
 					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
 				} else {
@@ -156,7 +156,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (d *dequeuer) process(ctx context.Context, item ingest.Identifiable) (*url.URL, error) {
+func (d *dequeuer) process(ctx context.Context, item ingest.SimpleCodec) (*url.URL, error) {
 	var u *url.URL
 	operation := func() error {
 		_, err := d.s.Stat(ctx, item)
