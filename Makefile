@@ -6,7 +6,7 @@ ALL_ARCH := amd64 arm arm64
 BIN_DIR := bin
 PLUGIN_DIR := $(BIN_DIR)/plugin
 BINS := $(BIN_DIR)/$(OS)/$(ARCH)/ingest
-PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive)
+PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive noop)
 PROJECT := ingest
 PKG := github.com/connylabs/$(PROJECT)
 
@@ -82,7 +82,7 @@ $(PLUGINS): $(SRC) go.mod
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
 		CGO_ENABLED=1 \
-		go build -buildmode=plugin -mod=vendor -o $@ \
+		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
 		    ./plugins/$(@F) \
 	$(BUILD_SUFIX)
@@ -99,7 +99,7 @@ fmt:
 
 lint: lint-go
 
-gen-mock: mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/identifiable.go mocks/object.go mocks/minio_client.go
+gen-mock: mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/storage.go mocks/minio_client.go
 
 mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@

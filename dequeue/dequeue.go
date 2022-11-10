@@ -170,8 +170,11 @@ func (d *dequeuer) process(ctx context.Context, item ingest.SimpleCodec) (*url.U
 		if !os.IsNotExist(err) {
 			return err
 		}
-
-		u, err = d.s.Store(ctx, item, d.c.Download)
+		obj, err := d.c.Download(ctx, item)
+		if err != nil {
+			return err
+		}
+		u, err = d.s.Store(ctx, item, *obj)
 		if err != nil {
 			return err
 		}

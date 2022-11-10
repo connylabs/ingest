@@ -18,6 +18,20 @@ type Storage struct {
 	mock.Mock
 }
 
+// Configure provides a mock function with given fields: _a0
+func (_m *Storage) Configure(_a0 map[string]interface{}) error {
+	ret := _m.Called(_a0)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(map[string]interface{}) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Stat provides a mock function with given fields: ctx, element
 func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
 	ret := _m.Called(ctx, element)
@@ -41,13 +55,13 @@ func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*stora
 	return r0, r1
 }
 
-// Store provides a mock function with given fields: ctx, element, download
-func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
-	ret := _m.Called(ctx, element, download)
+// Store provides a mock function with given fields: ctx, element, obj
+func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+	ret := _m.Called(ctx, element, obj)
 
 	var r0 *url.URL
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) *url.URL); ok {
-		r0 = rf(ctx, element, download)
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec, ingest.Object) *url.URL); ok {
+		r0 = rf(ctx, element, obj)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*url.URL)
@@ -55,8 +69,8 @@ func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, downlo
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec, func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) error); ok {
-		r1 = rf(ctx, element, download)
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec, ingest.Object) error); ok {
+		r1 = rf(ctx, element, obj)
 	} else {
 		r1 = ret.Error(1)
 	}

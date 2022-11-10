@@ -16,8 +16,6 @@ import (
 
 func TestStore(t *testing.T) {
 	t.Run("using meta objects", func(t *testing.T) {
-		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 
 		_t := ingest.NewCodec("foo", "bar")
@@ -25,17 +23,22 @@ func TestStore(t *testing.T) {
 			MimeType: "plain/text",
 			Len:      64,
 		}
-
-		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
 
 		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once().
 			On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 
-		s := New("bucket", "prefix", "meta", mc, logger)
+		s := &minioStorage{
+			metafilesPrefix: "meta",
+			useDone:         true,
+			bucket:          "bucket",
+			prefix:          "prefix",
+			mc:              mc,
+			l:               log.NewJSONLogger(log.NewSyncWriter(os.Stdout)),
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, *_t, c.Download)
+		u, err := s.Store(ctx, *_t, *obj)
 		if err != nil {
 			t.Error(err)
 		}
@@ -46,11 +49,8 @@ func TestStore(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 	t.Run("not using meta objects", func(t *testing.T) {
-		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 		obj := &ingest.Object{
@@ -58,15 +58,18 @@ func TestStore(t *testing.T) {
 			Len:      64,
 		}
 
-		c.On("Download", mock.Anything, mock.Anything).Return(obj, nil).Once()
-
 		mc.On("PutObject", mock.Anything, "bucket", "prefix/bar", mock.Anything, int64(64), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 
-		s := New("bucket", "prefix", "", mc, logger)
+		s := &minioStorage{
+			bucket: "bucket",
+			prefix: "prefix",
+			mc:     mc,
+			l:      log.NewJSONLogger(log.NewSyncWriter(os.Stdout)),
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, *_t, c.Download)
+		u, err := s.Store(ctx, *_t, *obj)
 		if err != nil {
 			t.Error(err)
 		}
@@ -77,21 +80,25 @@ func TestStore(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 }
 
 func TestStat(t *testing.T) {
 	t.Run("no object, no meta object", func(t *testing.T) {
-		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
 			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New("bucket", "prefix", "meta", mc, logger)
+		s := &minioStorage{
+			bucket:          "bucket",
+			prefix:          "prefix",
+			mc:              mc,
+			useDone:         true,
+			metafilesPrefix: "meta",
+			l:               log.NewJSONLogger(log.NewSyncWriter(os.Stdout)),
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -105,11 +112,8 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 	t.Run("object, no meta object", func(t *testing.T) {
-		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 
@@ -117,7 +121,14 @@ func TestStat(t *testing.T) {
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once().
 			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New("bucket", "prefix", "meta", mc, logger)
+		s := &minioStorage{
+			bucket:          "bucket",
+			prefix:          "prefix",
+			mc:              mc,
+			useDone:         true,
+			metafilesPrefix: "meta",
+			l:               log.NewJSONLogger(log.NewSyncWriter(os.Stdout)),
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -132,17 +143,23 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 	t.Run("no object, meta object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
+		logger = log.With(logger, "caller", log.DefaultCaller)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 
-		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
+		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil)
 
-		s := New("bucket", "prefix", "meta", mc, logger)
+		s := &minioStorage{
+			bucket:          "bucket",
+			prefix:          "prefix",
+			mc:              mc,
+			useDone:         true,
+			metafilesPrefix: "meta",
+			l:               logger,
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -157,17 +174,20 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 	t.Run("object exists", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
-		s := New("bucket", "prefix", "", mc, logger)
+		s := &minioStorage{
+			bucket: "bucket",
+			prefix: "prefix",
+			mc:     mc,
+			l:      logger,
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -182,17 +202,20 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 	t.Run("no object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
-		c := new(mocks.Client)
 		mc := new(mocks.MinioClient)
 		_t := ingest.NewCodec("foo", "bar")
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 
-		s := New("bucket", "prefix", "", mc, logger)
+		s := &minioStorage{
+			bucket: "bucket",
+			prefix: "prefix",
+			mc:     mc,
+			l:      logger,
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
@@ -206,6 +229,5 @@ func TestStat(t *testing.T) {
 		}
 
 		mc.AssertExpectations(t)
-		c.AssertExpectations(t)
 	})
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-kit/log"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/mitchellh/mapstructure"
@@ -30,19 +29,12 @@ type sourceConfig struct {
 	Recursive       bool
 }
 
-type destinationConfig struct {
-	sourceConfig    `mapstructure:",squash"`
-	MetafilesPrefix string
-}
-
-type plugin struct{}
-
 // NewSource implements the Plugin interface.
-func (p *plugin) NewSource(_ context.Context, config map[string]interface{}) (iplugin.Source, error) {
+func (p *source) Configure(config map[string]interface{}) error {
 	sc := new(sourceConfig)
 	err := mapstructure.Decode(config, sc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if sc.Endpoint == "" {
 		sc.Endpoint = defaultEndpoint
@@ -52,34 +44,14 @@ func (p *plugin) NewSource(_ context.Context, config map[string]interface{}) (ip
 		Secure: !sc.Insecure,
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return newSource(mc, sc.Bucket, sc.Prefix, sc.Recursive), nil
-}
+	p.bucket = sc.Bucket
+	p.mc = mc
+	p.prefix = sc.Prefix
+	p.recursive = sc.Recursive
 
-// NewDestination implements the Plugin interface.
-func (p *plugin) NewDestination(_ context.Context, config map[string]interface{}) (iplugin.Destination, error) {
-	dc := new(destinationConfig)
-	err := mapstructure.Decode(config, dc)
-	if err != nil {
-		return nil, err
-	}
-	if dc.Endpoint == "" {
-		dc.Endpoint = defaultEndpoint
-	}
-	mc, err := minio.New(dc.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(dc.AccessKeyID, dc.SecretAccessKey, ""),
-		Secure: !dc.Insecure,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, log.NewNopLogger()), nil
-}
-
-// Register allows ingest to register this plugin.
-var Register iplugin.Register = func() (iplugin.Plugin, error) {
-	return &plugin{}, nil
+	return nil
 }
 
 // An Element is pushed and popped from the queue.
@@ -108,16 +80,6 @@ type source struct {
 	bucket    string
 	prefix    string
 	recursive bool
-}
-
-// newSource return a new source.
-func newSource(mc *minio.Client, bucket, prefix string, recursive bool) iplugin.Source {
-	return &source{
-		mc:        mc,
-		bucket:    bucket,
-		prefix:    prefix,
-		recursive: recursive,
-	}
 }
 
 // Reset resets the Nexter as if it was newly created.
@@ -174,4 +136,8 @@ func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (*ingest.Ob
 		Len:      stat.Size,
 		MimeType: stat.ContentType,
 	}, nil
+}
+
+func main() {
+	iplugin.RunPluginServer(&source{}, s3storage.New())
 }

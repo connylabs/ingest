@@ -12,6 +12,8 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -34,15 +36,51 @@ type minioStorage struct {
 }
 
 // New returns a new Storage that can store objects to S3.
-func New(bucket string, prefix string, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage {
-	return &minioStorage{
-		bucket:          bucket,
-		mc:              mc,
-		l:               l,
-		prefix:          prefix,
-		metafilesPrefix: metafilesPrefix,
-		useDone:         metafilesPrefix != "",
+func New() storage.Storage {
+	return &minioStorage{}
+}
+
+const defaultEndpoint = "s3.amazonaws.com"
+
+type sourceConfig struct {
+	Endpoint        string
+	Insecure        bool
+	AccessKeyID     string `json:"accessKeyID"`
+	SecretAccessKey string
+	Bucket          string
+	Prefix          string
+	Recursive       bool
+}
+
+type destinationConfig struct {
+	sourceConfig    `mapstructure:",squash"`
+	MetafilesPrefix string
+}
+
+func (ms *minioStorage) Configure(config map[string]interface{}) error {
+	dc := new(destinationConfig)
+	err := mapstructure.Decode(config, dc)
+	if err != nil {
+		return nil
 	}
+	if dc.Endpoint == "" {
+		dc.Endpoint = defaultEndpoint
+	}
+	mc, err := minio.New(dc.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(dc.AccessKeyID, dc.SecretAccessKey, ""),
+		Secure: !dc.Insecure,
+	})
+	if err != nil {
+		return err
+	}
+	ms.bucket = dc.Bucket
+	ms.mc = mc
+	ms.l = log.NewNopLogger()
+	ms.prefix = dc.Prefix
+	ms.metafilesPrefix = dc.MetafilesPrefix
+	ms.useDone = dc.MetafilesPrefix != ""
+
+	return nil
 }
 
 func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
@@ -66,21 +104,16 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
 	u := ms.url(element)
-
-	object, err := download(ctx, element)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
-	}
 
 	if _, err := ms.mc.PutObject(
 		ctx,
 		ms.bucket,
 		u.Path,
-		object.Reader,
-		object.Len,
-		minio.PutObjectOptions{ContentType: object.MimeType}, // I guess we can remove the mime type detection because we always use tar.gz files.
+		obj.Reader,
+		obj.Len,
+		minio.PutObjectOptions{ContentType: obj.MimeType}, // I guess we can remove the mime type detection because we always use tar.gz files.
 	); err != nil {
 		return nil, err
 	}

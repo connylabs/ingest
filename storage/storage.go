@@ -1,7 +1,10 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/url"
 	"os"
 
@@ -24,7 +27,8 @@ type Storage interface {
 	// Stat can be used to find information about the object corresponding to the given element.
 	// If the object does not exist, then Stat returns an error satisfied by os.IsNotExist.
 	Stat(ctx context.Context, element ingest.SimpleCodec) (*ObjectInfo, error)
-	Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error)
+	Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error)
+	Configure(map[string]any) error
 }
 
 type instrumentedStorage struct {
@@ -42,8 +46,8 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.SimpleCode
 	return oi, err
 }
 
-func (i instrumentedStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
-	u, err := i.Storage.Store(ctx, element, download)
+func (i instrumentedStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+	u, err := i.Storage.Store(ctx, element, obj)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
 	} else {
@@ -106,12 +110,37 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*Ob
 	return o0, err.Err()
 }
 
-func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, download func(context.Context, ingest.SimpleCodec) (*ingest.Object, error)) (*url.URL, error) {
+func (m multiStorage) Configure(map[string]any) error {
+	return errors.New("not implemented")
+}
+
+func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
 	var u0 *url.URL
 	ch := make(chan error, len(m))
+	// TODO: the whole copying could be improved, too many copies of the same data.
+	buf, err := io.ReadAll(obj.Reader)
+	if err != nil {
+		return nil, err
+	}
+	rs := bytes.NewReader(buf)
 	for i := range m {
+		tmp := &bytes.Buffer{}
+		_, err := rs.Seek(0, io.SeekStart)
+		if err != nil {
+			return nil, err
+		}
+		_, err = io.Copy(tmp, rs)
+		if err != nil {
+			return nil, err
+		}
+
+		obj := ingest.Object{
+			Len:      obj.Len,
+			MimeType: obj.MimeType,
+			Reader:   tmp,
+		}
 		go func(i int) {
-			u, err := m[i].Store(ctx, element, download)
+			u, err := m[i].Store(ctx, element, obj)
 			if i == 0 {
 				u0 = u
 			}
@@ -119,17 +148,17 @@ func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, dow
 		}(i)
 	}
 	var i int
-	var err merrors.NilOrMultiError
+	var merr merrors.NilOrMultiError
 	for e := range ch {
 		if e != nil {
-			err.Add(e)
+			merr.Add(e)
 		}
 		i++
 		if i == len(m) {
 			close(ch)
 		}
 	}
-	return u0, err.Err()
+	return u0, merr.Err()
 }
 
 // NewMultiStorage creates a composite storage that combines many storages.
