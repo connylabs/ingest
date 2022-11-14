@@ -29,7 +29,7 @@ type Nexter interface {
 	// Reset initializes or resets the state of the Nexter.
 	// After Reset, calls of Next should retrieve all elements.
 	Reset(context.Context) error
-	// Next returns one T that represents an element.
+	// Next returns one SimpleCodec that represents an element.
 	// If all elements were returned by Next, io.EOF must be returned.
 	Next(context.Context) (*SimpleCodec, error)
 }
@@ -56,14 +56,12 @@ type Object struct {
 	Reader io.Reader
 }
 
-// Client is able to create an Object from a T.
+// Client is able to create an Object from a SimpleCodec.
 // Client must be implemented by the caller.
 type Client interface {
-	// Download converts a T into an Object.
-	// In most cases it will use the ID of the T to
-	// download the object from an API,
-	// however in some cases it is possible to create
-	// the Object directly from the T.
+	// Download converts a SimpleCodec into an Object.
+	// In most cases it will use the ID of the SimpleCodec
+	// to download the object from an API,
 	Download(context.Context, SimpleCodec) (*Object, error)
 	// CleanUp is called after an object is uploaded
 	// to object storage. In most cases, this will

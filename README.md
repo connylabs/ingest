@@ -87,9 +87,9 @@ type Nexter interface {
 	// Reset initializes or resets the state of the Nexter.
 	// After Reset, calls of Next should retrieve all elements.
 	Reset(context.Context) error
-	// Next returns one T that represents an element.
+	// Next returns one SimpleCodec that represents an element.
 	// If all elements were returned by Next, io.EOF must be returned.
-	Next(context.Context) (Identifiable, error)
+	Next(context.Context) (*SimpleCodec, error)
 }
 ```
 
@@ -109,31 +109,28 @@ type Enqueuer interface {
 
 The `Dequeuer` reads from the queue and uploads the object into object storage.
 You need implement the `Client` interface.
-**Note**: if the entire object is transported over the queue, then the `Download` operation can directly convert the given `T` into an object rather than download it from the API.
 
 [embedmd]:# (ingest.go /\/\/ Object / /}/)
 ```go
 // Object represents an object that can be uploaded into object storage.
-type Object interface {
+type Object struct {
 	// MimeType is the HTTP-style Content-Type of the object.
-	MimeType() string
+	MimeType string
 	// Len is the length of the underlying buffer of the io.Reader.
-	Len() int64
-	io.Reader
+	Len    int64
+	Reader io.Reader
 }
 ```
 
 [embedmd]:# (ingest.go /\/\/ Client/ /}/)
 ```go
-// Client is able to create an Object from a T.
+// Client is able to create an Object from a SimpleCodec.
 // Client must be implemented by the caller.
 type Client interface {
-	// Download converts a T into an Object.
-	// In most cases it will use the ID of the T to
-	// download the object from an API,
-	// however in some cases it is possible to create
-	// the Object directly from the T.
-	Download(context.Context, Identifiable) (Object, error)
+	// Download converts a SimpleCodec into an Object.
+	// In most cases it will use the ID of the SimpleCodec
+	// to download the object from an API,
+	Download(context.Context, SimpleCodec) (*Object, error)
 	// CleanUp is called after an object is uploaded
 	// to object storage. In most cases, this will
 	// serve the purpose of removing the object from
@@ -141,20 +138,7 @@ type Client interface {
 	// by the Nexter and as such is not resynchronized.
 	// This method must be idempotent and safe to call
 	// multiple times.
-	CleanUp(context.Context, Identifiable) error
-}
-```
-
-[embedmd]:# (ingest.go /\/\/ Identifiable/ /}/)
-```go
-// Identifiable must be implemented by the caller for their T.
-// The ID is used to identify the T in the source API.
-// The Name is used as a key in the destination object storage.
-type Identifiable interface {
-	// ID returns a unique id.
-	ID() string
-	// Nane returns a name for the destination.
-	Name() string
+	CleanUp(context.Context, SimpleCodec) error
 }
 ```
 
