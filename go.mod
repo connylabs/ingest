@@ -23,7 +23,6 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/vektra/mockery/v2 v2.10.2
 	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91
-	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	google.golang.org/api v0.63.0
 )

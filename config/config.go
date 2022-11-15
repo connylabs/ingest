@@ -151,7 +151,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 	// Instantiate the sources.
 	for i := range c.Sources {
 		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(ctx) //nolint:govet
 
 		_, s, err := plugin.NewPlugin(ctx, pluginPaths[c.Sources[i].Type])
 		if s == nil {
@@ -168,11 +168,11 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 	// Instantiate the destinations.
 	for i := range c.Destinations {
 		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(ctx) //nolint:govet
 		d, _, err := plugin.NewPlugin(ctx, pluginPaths[c.Destinations[i].Type])
 		if d == nil {
 			cancel()
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
+			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err) //nolint:govet
 		}
 
 		if err := d.Configure(c.Destinations[i].Config); err != nil {
@@ -182,7 +182,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
 
 	}
-	return sources, destinations, nil
+	return sources, destinations, nil //nolint:govet
 }
 
 func firstPath(paths []string, filename string) (string, error) {

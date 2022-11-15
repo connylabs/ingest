@@ -343,11 +343,11 @@ func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
 	mErr := &multierror.Error{}
 	rawD, errD := rpcClient.Dispense("destination")
 	if errD != nil {
-		multierror.Append(mErr, errD)
+		mErr = multierror.Append(mErr, errD)
 	}
 	rawS, errS := rpcClient.Dispense("source")
 	if errS != nil {
-		multierror.Append(mErr, errS)
+		mErr = multierror.Append(mErr, errS)
 	}
 	if mErr.Len() == 2 {
 		rpcClient.Close()

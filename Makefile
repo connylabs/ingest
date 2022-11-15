@@ -26,7 +26,7 @@ GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
 
 EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd
-GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
+GOLANGCI_LINT_BINARY := $(shell pwd)/$(BIN_DIR)/golangci-lint
 MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
@@ -136,23 +136,9 @@ mocks/minio_client.go: storage/s3/s3.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/storage/s3 --filename $(@F) --name="MinioClient"
 
-lint-go: $(GOLINT_BINARY)
-	@echo 'go vet $(GO_PKGS)'
-	@vet_res=$$(go vet $(GO_PKGS) 2>&1); if [ -n "$$vet_res" ]; then \
-		echo ""; \
-		echo "Go vet found issues. Please check the reported issues"; \
-		echo "and fix them if necessary before submitting the code for review:"; \
-		echo "$$vet_res"; \
-		exit 1; \
-	fi
-	@echo '$(GOLINT_BINARY) $(GO_PKGS)'
-	@lint_res=$$($(GOLINT_BINARY) $(GO_PKGS)); if [ -n "$$lint_res" ]; then \
-		echo ""; \
-		echo "Golint found style issues. Please check the reported issues"; \
-		echo "and fix them if necessary before submitting the code for review:"; \
-		echo "$$lint_res"; \
-		exit 1; \
-	fi
+lint-go: $(GOLANGCI_LINT_BINARY)
+	$(GOLANGCI_LINT_BINARY) run
+
 	@echo 'gofmt -d -s $(GO_FILES)'
 	@fmt_res=$$(gofmt -d -s $(GO_FILES)); if [ -n "$$fmt_res" ]; then \
 		echo ""; \
@@ -170,8 +156,8 @@ vendor:
 	go mod tidy
 	go mod vendor
 
-$(GOLINT_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ golang.org/x/lint/golint
+$(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
 $(NATS_BINARY): | $(BIN_DIR)
 	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats

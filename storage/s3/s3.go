@@ -73,6 +73,7 @@ func (ms *minioStorage) Configure(config map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
+
 	ms.bucket = dc.Bucket
 	ms.mc = mc
 	ms.l = log.NewNopLogger()

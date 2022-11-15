@@ -211,7 +211,7 @@ func (d *dequeuer) callWebhook(ctx context.Context, data []string) error {
 		return err
 	}
 	defer res.Body.Close()
-	defer io.Copy(io.Discard, res.Body)
+	defer io.Copy(io.Discard, res.Body) //nolint:errcheck
 
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("webhook request failed with status code: %d", res.StatusCode)
