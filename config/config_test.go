@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
-	ctx := context.Background()
-
 	for _, tc := range []struct {
 		name   string
 		paths  []string
@@ -74,6 +73,12 @@ workflows:
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(func() {
+				cancel()
+				time.Sleep(time.Millisecond)
+			})
+
 			c, err := New(tc.config)
 			require.Nil(t, err)
 

@@ -80,7 +80,7 @@ func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
 	client := hplugin.NewClient(&hplugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
-		Cmd:             exec.Command(path),
+		Cmd:             exec.CommandContext(ctx, path),
 		Logger:          logger,
 	})
 
@@ -93,6 +93,8 @@ func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
 	go func() {
 		// TODO find out how to exit gracefully
 		// Sometime the RPC server keeps running usings lots of CPU.
+
+		// EDIT: We can also remove this because we kill the process when using exec.CommandContext
 		<-ctx.Done()
 		logger.Info("closing rpc client")
 		if err := rpcClient.Close(); err != nil {
