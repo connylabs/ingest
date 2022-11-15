@@ -20,7 +20,8 @@ var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runt
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
@@ -50,7 +51,8 @@ func TestNewPluginSource(t *testing.T) {
 
 	t.Run("Download and CleanUp", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
@@ -74,7 +76,8 @@ func TestNewPluginSource(t *testing.T) {
 
 	t.Run("Configure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
@@ -87,7 +90,8 @@ func TestNewPluginSource(t *testing.T) {
 func TestPluginStore(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
@@ -98,7 +102,8 @@ func TestPluginStore(t *testing.T) {
 
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
@@ -114,7 +119,8 @@ func TestPluginStore(t *testing.T) {
 
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		t.Cleanup(cancel)
+
 		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
