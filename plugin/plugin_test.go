@@ -2,22 +2,26 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/connylabs/ingest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/connylabs/ingest"
 )
+
+var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runtime.GOARCH)
 
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		_, p, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
 		err = p.Configure(nil)
@@ -29,9 +33,7 @@ func TestNewPluginSource(t *testing.T) {
 
 		n, err = p.Next(ctx)
 		assert.NotNil(t, err)
-		// We can't pass the error interface over RPC.
-		// As a work around we pass only the error message, but we lose the exact error type.
-		assert.Equal(t, err.Error(), io.EOF.Error())
+		assert.ErrorIs(t, err, io.EOF)
 		assert.Nil(t, n)
 
 		err = p.Reset(ctx)
@@ -49,7 +51,7 @@ func TestNewPluginSource(t *testing.T) {
 	t.Run("Download and CleanUp", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		_, p, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
 		err = p.Configure(nil)
@@ -68,13 +70,12 @@ func TestNewPluginSource(t *testing.T) {
 		require.Nil(t, p.CleanUp(ctx, *n))
 
 		require.Error(t, p.CleanUp(ctx, ingest.SimpleCodec{XID: "unknown", XName: "nobody"}))
-		time.Sleep(time.Minute)
 	})
 
 	t.Run("Configure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		_, p, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
 		assert.Error(t, p.Configure(map[string]any{"error": "an error"}))
@@ -87,7 +88,7 @@ func TestPluginStore(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		p, _, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
@@ -98,7 +99,7 @@ func TestPluginStore(t *testing.T) {
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		p, _, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
@@ -114,7 +115,7 @@ func TestPluginStore(t *testing.T) {
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		p, _, err := NewPlugin(ctx, "../bin/plugin/linux/amd64/noop")
+		p, _, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
