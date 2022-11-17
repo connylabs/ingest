@@ -38,7 +38,7 @@ func TestStore(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, *_t, *obj)
+		u, err := s.Store(ctx, _t, *obj)
 		if err != nil {
 			t.Error(err)
 		}
@@ -69,7 +69,7 @@ func TestStore(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		u, err := s.Store(ctx, *_t, *obj)
+		u, err := s.Store(ctx, _t, *obj)
 		if err != nil {
 			t.Error(err)
 		}
@@ -102,7 +102,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, *_t)
+		o, err := s.Stat(ctx, _t)
 		if !os.IsNotExist(err) {
 			t.Errorf("expected error to satisfy os.IsNotExist, got %v", err)
 		}
@@ -132,7 +132,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, *_t)
+		o, err := s.Stat(ctx, _t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -163,7 +163,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, *_t)
+		o, err := s.Stat(ctx, _t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -191,7 +191,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, *_t)
+		o, err := s.Stat(ctx, _t)
 		if err != nil {
 			t.Error(err)
 		}
@@ -219,7 +219,7 @@ func TestStat(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
-		o, err := s.Stat(ctx, *_t)
+		o, err := s.Stat(ctx, _t)
 		if !os.IsNotExist(err) {
 			t.Errorf("expected error to satisfy os.IsNotExist, got %v", err)
 		}

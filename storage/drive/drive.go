@@ -80,8 +80,8 @@ func New(folder string, service *drive.Service, l hclog.Logger) (storage.Storage
 	return ds, nil
 }
 
-func (ds *DriveStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
-	f, err := ds.find(ctx, ds.p, []string{element.Name()})
+func (ds *DriveStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+	f, err := ds.find(ctx, ds.p, []string{element.Name})
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +118,9 @@ func (ds *DriveStorage) find(ctx context.Context, parent string, parts []string)
 	return nil, fs.ErrNotExist
 }
 
-func (ds *DriveStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (ds *DriveStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	file := &drive.File{
-		Name:    element.Name(),
+		Name:    element.Name,
 		Parents: []string{ds.p},
 	}
 

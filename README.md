@@ -89,7 +89,7 @@ type Nexter interface {
 	Reset(context.Context) error
 	// Next returns one SimpleCodec that represents an element.
 	// If all elements were returned by Next, io.EOF must be returned.
-	Next(context.Context) (*SimpleCodec, error)
+	Next(context.Context) (*Codec, error)
 }
 ```
 
@@ -130,7 +130,7 @@ type Client interface {
 	// Download converts a SimpleCodec into an Object.
 	// In most cases it will use the ID of the SimpleCodec
 	// to download the object from an API,
-	Download(context.Context, SimpleCodec) (*Object, error)
+	Download(context.Context, Codec) (*Object, error)
 	// CleanUp is called after an object is uploaded
 	// to object storage. In most cases, this will
 	// serve the purpose of removing the object from
@@ -138,7 +138,7 @@ type Client interface {
 	// by the Nexter and as such is not resynchronized.
 	// This method must be idempotent and safe to call
 	// multiple times.
-	CleanUp(context.Context, SimpleCodec) error
+	CleanUp(context.Context, Codec) error
 }
 ```
 

@@ -33,11 +33,11 @@ func (_m *Storage) Configure(_a0 map[string]interface{}) error {
 }
 
 // Stat provides a mock function with given fields: ctx, element
-func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
+func (_m *Storage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
 	ret := _m.Called(ctx, element)
 
 	var r0 *storage.ObjectInfo
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec) *storage.ObjectInfo); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Codec) *storage.ObjectInfo); ok {
 		r0 = rf(ctx, element)
 	} else {
 		if ret.Get(0) != nil {
@@ -46,7 +46,7 @@ func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*stora
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.Codec) error); ok {
 		r1 = rf(ctx, element)
 	} else {
 		r1 = ret.Error(1)
@@ -56,11 +56,11 @@ func (_m *Storage) Stat(ctx context.Context, element ingest.SimpleCodec) (*stora
 }
 
 // Store provides a mock function with given fields: ctx, element, obj
-func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (_m *Storage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	ret := _m.Called(ctx, element, obj)
 
 	var r0 *url.URL
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.SimpleCodec, ingest.Object) *url.URL); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Codec, ingest.Object) *url.URL); ok {
 		r0 = rf(ctx, element, obj)
 	} else {
 		if ret.Get(0) != nil {
@@ -69,7 +69,7 @@ func (_m *Storage) Store(ctx context.Context, element ingest.SimpleCodec, obj in
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, ingest.SimpleCodec, ingest.Object) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.Codec, ingest.Object) error); ok {
 		r1 = rf(ctx, element, obj)
 	} else {
 		r1 = ret.Error(1)

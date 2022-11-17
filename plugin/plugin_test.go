@@ -30,7 +30,7 @@ func TestNewPluginSource(t *testing.T) {
 
 		n, err := p.Next(ctx)
 		assert.Nil(t, err)
-		assert.Equal(t, DefaultCodec, *n)
+		assert.Equal(t, defaultCodec, *n)
 
 		n, err = p.Next(ctx)
 		assert.NotNil(t, err)
@@ -42,7 +42,7 @@ func TestNewPluginSource(t *testing.T) {
 
 		n, err = p.Next(ctx)
 		assert.Nil(t, err)
-		assert.Equal(t, DefaultCodec, *n)
+		assert.Equal(t, defaultCodec, *n)
 
 		require.Nil(t, p.Configure(map[string]any{"resetErr": true}))
 
@@ -67,11 +67,11 @@ func TestNewPluginSource(t *testing.T) {
 
 		b, err := io.ReadAll(obj.Reader)
 		require.Nil(t, err)
-		assert.Equal(t, DefaultObjContent, string(b))
+		assert.Equal(t, defaultObjContent, string(b))
 
 		require.Nil(t, p.CleanUp(ctx, *n))
 
-		require.Error(t, p.CleanUp(ctx, ingest.SimpleCodec{XID: "unknown", XName: "nobody"}))
+		require.Error(t, p.CleanUp(ctx, ingest.NewCodec("unknown", "nobody")))
 	})
 
 	t.Run("Configure", func(t *testing.T) {
@@ -108,11 +108,11 @@ func TestPluginStore(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
-		u, err := p.Stat(ctx, DefaultCodec)
+		u, err := p.Stat(ctx, defaultCodec)
 		require.Nil(t, err)
-		assert.Equal(t, DefaultObjURL, u.URI)
+		assert.Equal(t, defaultObjURL, u.URI)
 
-		u, err = p.Stat(ctx, *ingest.NewCodec("fake id", "unknown"))
+		u, err = p.Stat(ctx, ingest.NewCodec("fake id", "unknown"))
 		assert.Nil(t, u)
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
@@ -125,13 +125,13 @@ func TestPluginStore(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
-		u, err := p.Store(ctx, DefaultCodec, ingest.Object{
-			Reader: strings.NewReader(DefaultObjContent),
+		u, err := p.Store(ctx, defaultCodec, ingest.Object{
+			Reader: strings.NewReader(defaultObjContent),
 		})
 		require.Nil(t, err)
-		assert.Equal(t, DefaultObjURL, u.String())
+		assert.Equal(t, defaultObjURL, u.String())
 
-		u, err = p.Store(ctx, DefaultCodec, ingest.Object{
+		u, err = p.Store(ctx, defaultCodec, ingest.Object{
 			Reader: strings.NewReader("other content"),
 		})
 		require.Error(t, err)

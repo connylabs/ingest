@@ -15,15 +15,15 @@ type Nexter struct {
 }
 
 // Next provides a mock function with given fields: _a0
-func (_m *Nexter) Next(_a0 context.Context) (*ingest.SimpleCodec, error) {
+func (_m *Nexter) Next(_a0 context.Context) (*ingest.Codec, error) {
 	ret := _m.Called(_a0)
 
-	var r0 *ingest.SimpleCodec
-	if rf, ok := ret.Get(0).(func(context.Context) *ingest.SimpleCodec); ok {
+	var r0 *ingest.Codec
+	if rf, ok := ret.Get(0).(func(context.Context) *ingest.Codec); ok {
 		r0 = rf(_a0)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*ingest.SimpleCodec)
+			r0 = ret.Get(0).(*ingest.Codec)
 		}
 	}
 

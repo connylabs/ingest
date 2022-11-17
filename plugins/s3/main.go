@@ -29,7 +29,7 @@ type sourceConfig struct {
 	Recursive       bool
 }
 
-// NewSource implements the Plugin interface.
+// Configure will configure the source with the values given by config.
 func (p *source) Configure(config map[string]interface{}) error {
 	sc := new(sourceConfig)
 	err := mapstructure.Decode(config, sc)
@@ -96,7 +96,7 @@ func (s *source) Reset(ctx context.Context) error {
 }
 
 // Next ignores the context in this implementation
-func (s *source) Next(_ context.Context) (*ingest.SimpleCodec, error) {
+func (s *source) Next(_ context.Context) (*ingest.Codec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -110,19 +110,20 @@ func (s *source) Next(_ context.Context) (*ingest.SimpleCodec, error) {
 			prefix: s.prefix,
 			name:   strings.TrimPrefix(oi.Key, s.prefix),
 		}
-		return ingest.NewCodec(e.ID(), e.Name()), nil
+		c := ingest.NewCodec(e.ID(), e.Name())
+		return &c, nil
 	}
 
 	return nil, io.EOF
 }
 
-func (s *source) CleanUp(ctx context.Context, i ingest.SimpleCodec) error {
-	return s.mc.RemoveObject(ctx, s.bucket, i.ID(), minio.RemoveObjectOptions{})
+func (s *source) CleanUp(ctx context.Context, i ingest.Codec) error {
+	return s.mc.RemoveObject(ctx, s.bucket, i.ID, minio.RemoveObjectOptions{})
 }
 
 // Download will take an Element and download it from S3
-func (s *source) Download(ctx context.Context, i ingest.SimpleCodec) (*ingest.Object, error) {
-	o, err := s.mc.GetObject(ctx, s.bucket, i.ID(), minio.GetObjectOptions{})
+func (s *source) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
+	o, err := s.mc.GetObject(ctx, s.bucket, i.ID, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object: %w", err)
 	}

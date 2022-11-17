@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	// DefaultCodec can be used for testing against this noop plugin.
-	DefaultCodec  = ingest.SimpleCodec{XID: "id", XName: "name"}
+	// defaultCodec can be used for testing against this noop plugin.
+	defaultCodec  = ingest.NewCodec("id", "name")
 	DefaultLogger = hclog.New(&hclog.LoggerOptions{
 		Level:      hclog.Trace,
 		Output:     os.Stderr,
@@ -27,8 +27,8 @@ var (
 )
 
 const (
-	DefaultObjContent = "content of the default object"
-	DefaultObjURL     = "http://host:9090/path"
+	defaultObjContent = "content of the default object"
+	defaultObjURL     = "http://host:9090/path"
 )
 
 func NewNoopSource(l hclog.Logger) *NoopSource {
@@ -37,10 +37,10 @@ func NewNoopSource(l hclog.Logger) *NoopSource {
 	}
 }
 
-// NoopSource can fetch elements from the S3 API.
+// NoopSource returns elements from a buffer of elements.
 type NoopSource struct {
 	ptr      int
-	buf      []ingest.SimpleCodec
+	buf      []ingest.Codec
 	resetErr bool
 	m        sync.Mutex
 	l        hclog.Logger
@@ -63,7 +63,7 @@ func (p *NoopSource) Configure(config map[string]interface{}) error {
 		}
 	}
 	p.ptr = 0
-	p.buf = []ingest.SimpleCodec{DefaultCodec}
+	p.buf = []ingest.Codec{defaultCodec}
 	return nil
 }
 
@@ -80,8 +80,8 @@ func (p *NoopSource) Reset(ctx context.Context) error {
 	return nil
 }
 
-// Next ignores the context in this implementation
-func (p *NoopSource) Next(_ context.Context) (*ingest.SimpleCodec, error) {
+// Next ignores the context in this implementation.
+func (p *NoopSource) Next(_ context.Context) (*ingest.Codec, error) {
 	p.l.Debug("call next", "counter", p.ptr)
 	p.m.Lock()
 	defer p.m.Unlock()
@@ -95,24 +95,24 @@ func (p *NoopSource) Next(_ context.Context) (*ingest.SimpleCodec, error) {
 	return &p.buf[p.ptr], nil
 }
 
-func (p *NoopSource) CleanUp(ctx context.Context, i ingest.SimpleCodec) error {
+func (p *NoopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
 	p.l.Debug("call cleanup")
-	if i != DefaultCodec {
-		return fmt.Errorf("id %q not found", i.XID)
+	if i != defaultCodec {
+		return fmt.Errorf("id %q not found", i.ID)
 	}
 
 	return nil
 }
 
 // Download will take an Element and download it from S3
-func (s *NoopSource) Download(ctx context.Context, i ingest.SimpleCodec) (*ingest.Object, error) {
-	if i != DefaultCodec {
-		return nil, fmt.Errorf("id %q not found", i.XID)
+func (s *NoopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
+	if i != defaultCodec {
+		return nil, fmt.Errorf("id %q not found", i.ID)
 	}
 	return &ingest.Object{
-		Len:      int64(len(DefaultObjContent)),
+		Len:      int64(len(defaultObjContent)),
 		MimeType: "plain/text",
-		Reader:   strings.NewReader(DefaultObjContent),
+		Reader:   strings.NewReader(defaultObjContent),
 	}, nil
 }
 
@@ -139,25 +139,25 @@ func (p *NoopStore) Configure(config map[string]interface{}) error {
 	return nil
 }
 
-func (ms *NoopStore) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
-	if element != DefaultCodec {
+func (ms *NoopStore) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+	if element != defaultCodec {
 		return nil, os.ErrNotExist
 	}
 	return &storage.ObjectInfo{
-		URI: DefaultObjURL,
+		URI: defaultObjURL,
 	}, nil
 }
 
-func (ms *NoopStore) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (ms *NoopStore) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	b, err := io.ReadAll(obj.Reader)
 	if err != nil {
 		return nil, err
 	}
-	if string(b) != DefaultObjContent {
+	if string(b) != defaultObjContent {
 		return nil, errors.New("wrong object content")
 	}
 
-	u, err := url.Parse(DefaultObjURL)
+	u, err := url.Parse(defaultObjURL)
 	if err != nil {
 		panic(err)
 	}

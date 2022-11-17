@@ -21,11 +21,11 @@ import (
 func TestEnqueue(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		expect func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec)
+		expect func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec)
 	}{
 		{
 			name: "nexter returns EOF",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
 				q := new(mocks.Queue)
 				n := new(mocks.Nexter)
 				n.On("Reset", mock.Anything).Return(nil).Once()
@@ -35,7 +35,7 @@ func TestEnqueue(t *testing.T) {
 		},
 		{
 			name: "nexter returns nil",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
 				q := new(mocks.Queue)
 				n := new(mocks.Nexter)
 				n.On("Reset", mock.Anything).Return(nil).Once()
@@ -45,21 +45,21 @@ func TestEnqueue(t *testing.T) {
 		},
 		{
 			name: "one entry",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
 				t := ingest.NewCodec("foo", "foo")
 				data, _ := t.Marshal()
 				q := new(mocks.Queue)
 				q.On("Publish", "sub", data).Return(nil).Once()
 				n := new(mocks.Nexter)
 				n.On("Reset", mock.Anything).Return(nil).
-					On("Next", mock.Anything).Once().Return(t, nil).
+					On("Next", mock.Anything).Once().Return(&t, nil).
 					On("Next", mock.Anything).Return(nil, io.EOF)
-				return q, n, t
+				return q, n, &t
 			},
 		},
 		{
 			name: "two entries",
-			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.SimpleCodec) {
+			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
 				t := ingest.NewCodec("foo", "foo")
 				data, _ := t.Marshal()
 				t2 := ingest.NewCodec("foo2", "foo2")
@@ -71,10 +71,10 @@ func TestEnqueue(t *testing.T) {
 				n := new(mocks.Nexter)
 				n.
 					On("Reset", mock.Anything).Return(nil).Once().
-					On("Next", mock.Anything).Return(t, nil).Once().
-					On("Next", mock.Anything).Return(t2, nil).Once().
+					On("Next", mock.Anything).Return(&t, nil).Once().
+					On("Next", mock.Anything).Return(&t2, nil).Once().
 					On("Next", mock.Anything).Return(nil, io.EOF).Once()
-				return q, n, t
+				return q, n, &t
 			},
 		},
 	} {

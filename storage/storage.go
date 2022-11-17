@@ -26,8 +26,8 @@ type ObjectInfo struct {
 type Storage interface {
 	// Stat can be used to find information about the object corresponding to the given element.
 	// If the object does not exist, then Stat returns an error satisfied by os.IsNotExist.
-	Stat(ctx context.Context, element ingest.SimpleCodec) (*ObjectInfo, error)
-	Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error)
+	Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error)
+	Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error)
 	Configure(map[string]any) error
 }
 
@@ -36,7 +36,7 @@ type instrumentedStorage struct {
 	operationsTotal *prometheus.CounterVec
 }
 
-func (i instrumentedStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*ObjectInfo, error) {
+func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error) {
 	oi, err := i.Storage.Stat(ctx, element)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("stat", "success").Inc()
@@ -46,7 +46,7 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.SimpleCode
 	return oi, err
 }
 
-func (i instrumentedStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (i instrumentedStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	u, err := i.Storage.Store(ctx, element, obj)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
@@ -77,7 +77,7 @@ func NewInstrumentedStorage(s Storage, r prometheus.Registerer) Storage {
 
 type multiStorage []Storage
 
-func (m multiStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*ObjectInfo, error) {
+func (m multiStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error) {
 	var o0 *ObjectInfo
 	ch := make(chan error, len(m))
 	for i := range m {
@@ -114,7 +114,7 @@ func (m multiStorage) Configure(map[string]any) error {
 	return errors.New("not implemented")
 }
 
-func (m multiStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	var u0 *url.URL
 	ch := make(chan error, len(m))
 	// TODO: the whole copying could be improved, too many copies of the same data.

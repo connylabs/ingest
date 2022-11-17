@@ -32,6 +32,7 @@ type Destination interface {
 	storage.Storage
 	Configure(map[string]any) error
 }
+
 type PluginSource struct {
 	Impl Source
 }

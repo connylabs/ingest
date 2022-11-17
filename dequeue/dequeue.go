@@ -110,7 +110,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 			g.Go(func() error {
 				// item, ok := any((*new(T))).(ingest.Codec)
 				// if !ok {
-				item := new(ingest.SimpleCodec)
+				item := new(ingest.Codec)
 				//}
 				if err := item.Unmarshal(raw.Data); err != nil {
 					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
@@ -118,15 +118,15 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 				}
 				u, err := d.process(ctx, *item)
 				if err != nil {
-					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID, "name", item.Name, "err", err.Error())
 				} else {
-					level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+					level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID, "name", item.Name, "data", string(raw.Data))
 				}
 				if err := raw.AckSync(); err != nil {
-					level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+					level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID, "name", item.Name, "err", err.Error())
 					return err
 				}
-				level.Debug(d.l).Log("msg", "acked message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+				level.Debug(d.l).Log("msg", "acked message", "id", item.ID, "name", item.Name, "data", string(raw.Data))
 				if u != nil {
 					uris[i] = u.String()
 				}
@@ -156,7 +156,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (d *dequeuer) process(ctx context.Context, item ingest.SimpleCodec) (*url.URL, error) {
+func (d *dequeuer) process(ctx context.Context, item ingest.Codec) (*url.URL, error) {
 	var u *url.URL
 	operation := func() error {
 		_, err := d.s.Stat(ctx, item)

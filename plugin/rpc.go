@@ -20,7 +20,7 @@ type pluginSourceRPCServer struct {
 	mb   *hplugin.MuxBroker
 }
 
-func (s *pluginSourceRPCServer) CleanUp(c *ingest.SimpleCodec, resp *any) error {
+func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
 	return s.Impl.CleanUp(context.TODO(), *c)
 }
 
@@ -28,7 +28,7 @@ func (s *pluginSourceRPCServer) Configure(c *map[string]any, resp *any) error {
 	return s.Impl.Configure(*c)
 }
 
-func (s *pluginSourceRPCServer) Download(c *ingest.SimpleCodec, resp *DownloadResponse) error {
+func (s *pluginSourceRPCServer) Download(c *ingest.Codec, resp *DownloadResponse) error {
 	obj, err := s.Impl.Download(context.TODO(), *c)
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ type pluginSourceRPC struct {
 	mb     *hplugin.MuxBroker
 }
 
-func (c *pluginSourceRPC) CleanUp(ctx context.Context, s ingest.SimpleCodec) error {
+func (c *pluginSourceRPC) CleanUp(ctx context.Context, s ingest.Codec) error {
 	return c.client.Call("Plugin.CleanUp", s, new(any))
 }
 
@@ -86,7 +86,7 @@ func (c *pluginSourceRPC) Configure(conf map[string]any) error {
 	return c.client.Call("Plugin.Configure", &conf, new(any))
 }
 
-func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.SimpleCodec) (*ingest.Object, error) {
+func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest.Object, error) {
 	var resp DownloadResponse
 	if err := c.client.Call("Plugin.Download", s, &resp); err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.SimpleCodec) (*
 	return obj, nil
 }
 
-func (c *pluginSourceRPC) Next(ctx context.Context) (*ingest.SimpleCodec, error) {
+func (c *pluginSourceRPC) Next(ctx context.Context) (*ingest.Codec, error) {
 	var resp NextResponse
 	if err := c.client.Call("Plugin.Next", new(any), &resp); err != nil {
 		return nil, err
@@ -132,8 +132,9 @@ type DownloadResponse struct {
 	Len      int64
 	Reader   uint32
 }
+
 type NextResponse struct {
-	S   *ingest.SimpleCodec
+	S   *ingest.Codec
 	Err string
 }
 
@@ -146,7 +147,7 @@ func (s *pluginDestinationRPCServer) Configure(c *map[string]any, resp *any) err
 	return s.Impl.Configure(*c)
 }
 
-func (s *pluginDestinationRPCServer) Stat(args *ingest.SimpleCodec, resp *storage.ObjectInfo) error {
+func (s *pluginDestinationRPCServer) Stat(args *ingest.Codec, resp *storage.ObjectInfo) error {
 	c, err := s.Impl.Stat(context.TODO(), *args)
 	if err != nil {
 		return err
@@ -187,7 +188,7 @@ func (c *pluginDestinationRPC) Configure(conf map[string]any) error {
 	return c.client.Call("Plugin.Configure", &conf, new(any))
 }
 
-func (c *pluginDestinationRPC) Stat(ctx context.Context, s ingest.SimpleCodec) (*storage.ObjectInfo, error) {
+func (c *pluginDestinationRPC) Stat(ctx context.Context, s ingest.Codec) (*storage.ObjectInfo, error) {
 	var resp storage.ObjectInfo
 	if err := c.client.Call("Plugin.Stat", s, &resp); err != nil {
 		if err.Error() == os.ErrNotExist.Error() {
@@ -198,7 +199,7 @@ func (c *pluginDestinationRPC) Stat(ctx context.Context, s ingest.SimpleCodec) (
 	return &resp, nil
 }
 
-func (c *pluginDestinationRPC) Store(ctx context.Context, s ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (c *pluginDestinationRPC) Store(ctx context.Context, s ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	var resp url.URL
 	id := c.mb.NextId()
 	req := &StoreRequest{
@@ -231,7 +232,7 @@ func (c *pluginDestinationRPC) Store(ctx context.Context, s ingest.SimpleCodec, 
 }
 
 type StoreRequest struct {
-	C   ingest.SimpleCodec
+	C   ingest.Codec
 	Obj struct {
 		Len      int64
 		MimeType string

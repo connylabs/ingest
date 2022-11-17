@@ -99,7 +99,7 @@ fmt:
 
 lint: lint-go
 
-gen-mock: mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/storage.go mocks/minio_client.go
+gen-mock: mocks/nexter.go mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/storage.go mocks/minio_client.go
 
 mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@

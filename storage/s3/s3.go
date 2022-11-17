@@ -84,8 +84,8 @@ func (ms *minioStorage) Configure(config map[string]interface{}) error {
 	return nil
 }
 
-func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*storage.ObjectInfo, error) {
-	synced, done, err := ms.isObjectSynced(ctx, element.Name(), ms.useDone)
+func (ms *minioStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+	synced, done, err := ms.isObjectSynced(ctx, element.Name, ms.useDone)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*
 	// If the file exists but the done file does not,
 	// let's patch this up.
 	if !done && ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name)), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create missing meta object for existing file: %w", err)
 		}
 	}
@@ -105,7 +105,7 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.SimpleCodec) (*
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, obj ingest.Object) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	u := ms.url(element)
 
 	if _, err := ms.mc.PutObject(
@@ -120,7 +120,7 @@ func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, o
 	}
 
 	if ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name)), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create matching meta object for uploaded file: %w", err)
 		}
 	}
@@ -128,11 +128,11 @@ func (ms *minioStorage) Store(ctx context.Context, element ingest.SimpleCodec, o
 	return u, nil
 }
 
-func (ms *minioStorage) url(element ingest.SimpleCodec) *url.URL {
+func (ms *minioStorage) url(element ingest.Codec) *url.URL {
 	return &url.URL{
 		Scheme: "s3",
 		Host:   ms.bucket,
-		Path:   path.Join(ms.prefix, element.Name()),
+		Path:   path.Join(ms.prefix, element.Name),
 	}
 }
 
