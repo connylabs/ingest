@@ -8,16 +8,24 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-kit/log"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/connylabs/ingest"
+	"github.com/connylabs/ingest/plugin"
 	iplugin "github.com/connylabs/ingest/plugin"
+	"github.com/connylabs/ingest/storage"
 	s3storage "github.com/connylabs/ingest/storage/s3"
 )
 
 const defaultEndpoint = "s3.amazonaws.com"
+
+type destinationConfig struct {
+	sourceConfig    `mapstructure:",squash"`
+	MetafilesPrefix string
+}
 
 type sourceConfig struct {
 	Endpoint        string
@@ -27,6 +35,34 @@ type sourceConfig struct {
 	Bucket          string
 	Prefix          string
 	Recursive       bool
+}
+
+var _ plugin.Destination = &destination{}
+
+type destination struct {
+	storage.Storage
+}
+
+func (d *destination) Configure(config map[string]interface{}) error {
+	dc := new(destinationConfig)
+	err := mapstructure.Decode(config, dc)
+	if err != nil {
+		return nil
+	}
+	if dc.Endpoint == "" {
+		dc.Endpoint = defaultEndpoint
+	}
+	mc, err := minio.New(dc.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(dc.AccessKeyID, dc.SecretAccessKey, ""),
+		Secure: !dc.Insecure,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create minio client:% w", err)
+	}
+
+	d.Storage = s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, dc.MetafilesPrefix != "", log.NewNopLogger())
+
+	return nil
 }
 
 // Configure will configure the source with the values given by config.
@@ -140,5 +176,5 @@ func (s *source) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, 
 }
 
 func main() {
-	iplugin.RunPluginServer(&source{}, s3storage.New())
+	iplugin.RunPluginServer(&source{}, &destination{})
 }

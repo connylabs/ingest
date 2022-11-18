@@ -28,7 +28,6 @@ type Storage interface {
 	// If the object does not exist, then Stat returns an error satisfied by os.IsNotExist.
 	Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error)
 	Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error)
-	Configure(map[string]any) error
 }
 
 type instrumentedStorage struct {

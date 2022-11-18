@@ -18,20 +18,6 @@ type Storage struct {
 	mock.Mock
 }
 
-// Configure provides a mock function with given fields: _a0
-func (_m *Storage) Configure(_a0 map[string]interface{}) error {
-	ret := _m.Called(_a0)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(map[string]interface{}) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // Stat provides a mock function with given fields: ctx, element
 func (_m *Storage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
 	ret := _m.Called(ctx, element)

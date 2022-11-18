@@ -10,12 +10,9 @@ import (
 	"strings"
 
 	hclog "github.com/hashicorp/go-hclog"
-	"github.com/mitchellh/mapstructure"
 	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/option"
 
 	"github.com/connylabs/ingest"
-	iplugin "github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/storage"
 )
 
@@ -23,46 +20,6 @@ type DriveStorage struct {
 	s *drive.Service
 	l hclog.Logger
 	p string
-}
-
-type destinationConfig struct {
-	APIKey          string
-	CredentialsFile string
-	Folder          string
-}
-
-// NewDestination implements the Plugin interface.
-func (p *DriveStorage) Configure(config map[string]interface{}) error {
-	dc := new(destinationConfig)
-	err := mapstructure.Decode(config, dc)
-	if err != nil {
-		return err
-	}
-	var o []option.ClientOption
-	if dc.APIKey != "" {
-		o = append(o, option.WithAPIKey(dc.APIKey))
-	}
-	if dc.CredentialsFile != "" {
-		o = append(o, option.WithCredentialsFile(dc.CredentialsFile))
-	}
-	ds, err := drive.NewService(context.TODO(), o...)
-	if err != nil {
-		return err
-	}
-
-	parts := strings.Split(dc.Folder, "/")
-	if len(parts) < 1 {
-		return errors.New("no folder was specified")
-	}
-	p.s = ds
-	p.l = iplugin.DefaultLogger
-
-	f, err := p.find(context.Background(), "", parts)
-	if err != nil {
-		return fmt.Errorf("failed to find folder: %w", err)
-	}
-	p.p = f.Id
-	return nil
 }
 
 // New returns a new Storage that can store objects to Google Drive.
