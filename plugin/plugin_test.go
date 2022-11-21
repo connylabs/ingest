@@ -25,6 +25,11 @@ func TestNewPluginSource(t *testing.T) {
 		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
 
+		_, err = p.Next(ctx)
+		assert.ErrorIs(t, err, ErrNotConfigured)
+
+		assert.ErrorIs(t, p.Reset(ctx), ErrNotConfigured)
+
 		err = p.Configure(nil)
 		require.Nil(t, err)
 
@@ -55,6 +60,11 @@ func TestNewPluginSource(t *testing.T) {
 
 		_, p, err := NewPlugin(ctx, noopPath)
 		require.Nil(t, err)
+
+		_, err = p.Download(ctx, defaultCodec)
+		assert.ErrorIs(t, err, ErrNotConfigured)
+
+		assert.ErrorIs(t, p.CleanUp(ctx, defaultCodec), ErrNotConfigured)
 
 		err = p.Configure(nil)
 		require.Nil(t, err)
@@ -108,6 +118,11 @@ func TestPluginStore(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
+		_, err = p.Stat(ctx, defaultCodec)
+		assert.ErrorIs(t, err, ErrNotConfigured)
+
+		require.Nil(t, p.Configure(map[string]any{}))
+
 		u, err := p.Stat(ctx, defaultCodec)
 		require.Nil(t, err)
 		assert.Equal(t, defaultObjURL, u.URI)
@@ -125,9 +140,18 @@ func TestPluginStore(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
+		_, err = p.Store(ctx, defaultCodec, ingest.Object{
+			Reader: strings.NewReader(defaultObjContent),
+		})
+
+		assert.ErrorIs(t, err, ErrNotConfigured)
+
+		require.Nil(t, p.Configure(nil))
+
 		u, err := p.Store(ctx, defaultCodec, ingest.Object{
 			Reader: strings.NewReader(defaultObjContent),
 		})
+
 		require.Nil(t, err)
 		assert.Equal(t, defaultObjURL, u.String())
 

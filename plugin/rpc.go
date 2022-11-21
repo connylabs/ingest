@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"net/url"
 	"os"
+	"time"
 
 	hplugin "github.com/hashicorp/go-plugin"
 
@@ -15,21 +16,45 @@ import (
 	"github.com/connylabs/ingest/storage"
 )
 
+const DefaultTimeOut = 5 * time.Second
+
 type pluginSourceRPCServer struct {
 	Impl Source
-	mb   *hplugin.MuxBroker
+
+	mb      *hplugin.MuxBroker
+	ctx     context.Context
+	cancel  context.CancelFunc
+	timeOut time.Duration
 }
 
 func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
-	return s.Impl.CleanUp(context.TODO(), *c)
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	return s.Impl.CleanUp(ctx, *c)
 }
 
 func (s *pluginSourceRPCServer) Configure(c *map[string]any, resp *any) error {
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	s.timeOut = DefaultTimeOut
+
 	return s.Impl.Configure(*c)
 }
 
 func (s *pluginSourceRPCServer) Download(c *ingest.Codec, resp *DownloadResponse) error {
-	obj, err := s.Impl.Download(context.TODO(), *c)
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	obj, err := s.Impl.Download(ctx, *c)
 	if err != nil {
 		return err
 	}
@@ -59,7 +84,14 @@ func (s *pluginSourceRPCServer) Download(c *ingest.Codec, resp *DownloadResponse
 }
 
 func (s *pluginSourceRPCServer) Next(args any, resp *NextResponse) error {
-	c, err := s.Impl.Next(context.TODO())
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	c, err := s.Impl.Next(ctx)
 	resp.S = c
 	if err != nil {
 		resp.Err = err.Error()
@@ -68,7 +100,14 @@ func (s *pluginSourceRPCServer) Next(args any, resp *NextResponse) error {
 }
 
 func (s *pluginSourceRPCServer) Reset(args any, resp *any) error {
-	return s.Impl.Reset(context.TODO())
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	return s.Impl.Reset(ctx)
 }
 
 var _ Source = &pluginSourceRPC{}
@@ -78,17 +117,29 @@ type pluginSourceRPC struct {
 	mb     *hplugin.MuxBroker
 }
 
+func (p *pluginSourceRPC) call(serviceMethod string, args any, reply any) (err error) {
+	err = p.client.Call(serviceMethod, args, reply)
+	if err != nil && err.Error() == ErrNotConfigured.Error() {
+		err = ErrNotConfigured
+	}
+
+	return
+}
+
 func (c *pluginSourceRPC) CleanUp(ctx context.Context, s ingest.Codec) error {
-	return c.client.Call("Plugin.CleanUp", s, new(any))
+	return c.call("Plugin.CleanUp", s, new(any))
 }
 
 func (c *pluginSourceRPC) Configure(conf map[string]any) error {
-	return c.client.Call("Plugin.Configure", &conf, new(any))
+	if conf == nil {
+		conf = map[string]any{}
+	}
+	return c.call("Plugin.Configure", &conf, new(any))
 }
 
 func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest.Object, error) {
 	var resp DownloadResponse
-	if err := c.client.Call("Plugin.Download", s, &resp); err != nil {
+	if err := c.call("Plugin.Download", s, &resp); err != nil {
 		return nil, err
 	}
 	con, err := c.mb.Dial(resp.Reader)
@@ -106,7 +157,7 @@ func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest
 
 func (c *pluginSourceRPC) Next(ctx context.Context) (*ingest.Codec, error) {
 	var resp NextResponse
-	if err := c.client.Call("Plugin.Next", new(any), &resp); err != nil {
+	if err := c.call("Plugin.Next", new(any), &resp); err != nil {
 		return nil, err
 	}
 	var err error
@@ -121,7 +172,7 @@ func (c *pluginSourceRPC) Next(ctx context.Context) (*ingest.Codec, error) {
 }
 
 func (c *pluginSourceRPC) Reset(ctx context.Context) error {
-	if err := c.client.Call("Plugin.Reset", new(any), new(any)); err != nil {
+	if err := c.call("Plugin.Reset", new(any), new(any)); err != nil {
 		return err
 	}
 	return nil
@@ -140,15 +191,32 @@ type NextResponse struct {
 
 type pluginDestinationRPCServer struct {
 	Impl Destination
-	mb   *hplugin.MuxBroker
+
+	mb      *hplugin.MuxBroker
+	ctx     context.Context
+	cancel  context.CancelFunc
+	timeOut time.Duration
 }
 
+var ErrNotConfigured = errors.New("not configured")
+
 func (s *pluginDestinationRPCServer) Configure(c *map[string]any, resp *any) error {
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	s.timeOut = DefaultTimeOut
+
 	return s.Impl.Configure(*c)
 }
 
 func (s *pluginDestinationRPCServer) Stat(args *ingest.Codec, resp *storage.ObjectInfo) error {
-	c, err := s.Impl.Stat(context.TODO(), *args)
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	c, err := s.Impl.Stat(ctx, *args)
 	if err != nil {
 		return err
 	}
@@ -158,6 +226,10 @@ func (s *pluginDestinationRPCServer) Stat(args *ingest.Codec, resp *storage.Obje
 }
 
 func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) error {
+	if s.ctx == nil {
+		return ErrNotConfigured
+	}
+
 	con, err := s.mb.Dial(args.Obj.Reader)
 	if err != nil {
 		return err
@@ -167,7 +239,11 @@ func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) er
 		MimeType: args.Obj.MimeType,
 		Reader:   con,
 	}
-	u, err := s.Impl.Store(context.TODO(), args.C, obj)
+
+	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
+	defer cancel()
+
+	u, err := s.Impl.Store(ctx, args.C, obj)
 	if err != nil {
 		return err
 	}
@@ -184,13 +260,25 @@ type pluginDestinationRPC struct {
 	mb     *hplugin.MuxBroker
 }
 
+func (p *pluginDestinationRPC) call(serviceMethod string, args any, reply any) (err error) {
+	err = p.client.Call(serviceMethod, args, reply)
+	if err != nil && err.Error() == ErrNotConfigured.Error() {
+		err = ErrNotConfigured
+	}
+
+	return
+}
+
 func (c *pluginDestinationRPC) Configure(conf map[string]any) error {
-	return c.client.Call("Plugin.Configure", &conf, new(any))
+	if conf == nil {
+		conf = map[string]any{}
+	}
+	return c.call("Plugin.Configure", &conf, new(any))
 }
 
 func (c *pluginDestinationRPC) Stat(ctx context.Context, s ingest.Codec) (*storage.ObjectInfo, error) {
 	var resp storage.ObjectInfo
-	if err := c.client.Call("Plugin.Stat", s, &resp); err != nil {
+	if err := c.call("Plugin.Stat", s, &resp); err != nil {
 		if err.Error() == os.ErrNotExist.Error() {
 			err = os.ErrNotExist
 		}
@@ -219,13 +307,13 @@ func (c *pluginDestinationRPC) Store(ctx context.Context, s ingest.Codec, obj in
 		if err != nil {
 			return
 		}
+		defer con.Close()
 		if _, err := io.Copy(con, obj.Reader); err != nil {
 			return
 		}
-		con.Close()
 	}()
 
-	if err := c.client.Call("Plugin.Store", req, &resp); err != nil {
+	if err := c.call("Plugin.Store", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
