@@ -116,17 +116,17 @@ func (s *NoopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Obje
 	}, nil
 }
 
-func NewNoopStore(l hclog.Logger) *NoopStore {
-	return &NoopStore{
+func NewNoopStore(l hclog.Logger) *NoopDestination {
+	return &NoopDestination{
 		l: l,
 	}
 }
 
-type NoopStore struct {
+type NoopDestination struct {
 	l hclog.Logger
 }
 
-func (p *NoopStore) Configure(config map[string]interface{}) error {
+func (p *NoopDestination) Configure(config map[string]interface{}) error {
 	p.l.Debug("configuring plugin")
 
 	if v, ok := config["error"]; ok {
@@ -139,7 +139,7 @@ func (p *NoopStore) Configure(config map[string]interface{}) error {
 	return nil
 }
 
-func (ms *NoopStore) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+func (ms *NoopDestination) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
 	if element != defaultCodec {
 		return nil, os.ErrNotExist
 	}
@@ -148,7 +148,7 @@ func (ms *NoopStore) Stat(ctx context.Context, element ingest.Codec) (*storage.O
 	}, nil
 }
 
-func (ms *NoopStore) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
+func (ms *NoopDestination) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	b, err := io.ReadAll(obj.Reader)
 	if err != nil {
 		return nil, err
