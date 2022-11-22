@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
 	"net/rpc"
 	"net/url"
 	"os"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
 
 	"github.com/connylabs/ingest"
@@ -21,40 +21,40 @@ const DefaultTimeOut = 5 * time.Second
 type pluginSourceRPCServer struct {
 	Impl Source
 
-	mb      *hplugin.MuxBroker
-	ctx     context.Context
-	cancel  context.CancelFunc
-	timeOut time.Duration
+	l          hclog.Logger
+	mb         *hplugin.MuxBroker
+	ctx        context.Context
+	configured bool
+	timeOut    time.Duration
 }
 
 func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
-	if s.ctx == nil {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	return s.Impl.CleanUp(ctx, *c)
+	return s.Impl.CleanUp(s.ctx, *c)
 }
 
 func (s *pluginSourceRPCServer) Configure(c *map[string]any, resp *any) error {
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-
+	// override timeout from conf?
 	s.timeOut = DefaultTimeOut
 
-	return s.Impl.Configure(*c)
+	if err := s.Impl.Configure(*c); err != nil {
+		return err
+	}
+
+	s.configured = true
+
+	return nil
 }
 
 func (s *pluginSourceRPCServer) Download(c *ingest.Codec, resp *DownloadResponse) error {
-	if s.ctx == nil {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	obj, err := s.Impl.Download(ctx, *c)
+	obj, err := s.Impl.Download(s.ctx, *c)
 	if err != nil {
 		return err
 	}
@@ -69,45 +69,40 @@ func (s *pluginSourceRPCServer) Download(c *ingest.Codec, resp *DownloadResponse
 	go func() {
 		con, err := s.mb.Accept(id)
 		if err != nil {
-			// TODO: log error
+			s.l.Error("failed to accept connection", "id", id, "error", err.Error())
 			return
 		}
 		defer con.Close()
 
 		if _, err := io.Copy(con, obj.Reader); err != nil {
-			// TODO Log error with better logger
-			log.Println(err)
+			s.l.Error("failed copy from connection", "id", id, "error", err.Error())
 		}
 	}()
 
 	return nil
 }
 
-func (s *pluginSourceRPCServer) Next(args any, resp *NextResponse) error {
-	if s.ctx == nil {
+func (s *pluginSourceRPCServer) Next(args any, resp *ingest.Codec) error {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	c, err := s.Impl.Next(ctx)
-	resp.S = c
+	c, err := s.Impl.Next(s.ctx)
 	if err != nil {
-		resp.Err = err.Error()
+		return err
 	}
+
+	*resp = *c
+
 	return nil
 }
 
 func (s *pluginSourceRPCServer) Reset(args any, resp *any) error {
-	if s.ctx == nil {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	return s.Impl.Reset(ctx)
+	return s.Impl.Reset(s.ctx)
 }
 
 var _ Source = &pluginSourceRPC{}
@@ -118,28 +113,23 @@ type pluginSourceRPC struct {
 }
 
 func (p *pluginSourceRPC) call(serviceMethod string, args any, reply any) (err error) {
-	err = p.client.Call(serviceMethod, args, reply)
-	if err != nil && err.Error() == ErrNotConfigured.Error() {
-		err = ErrNotConfigured
-	}
-
-	return
+	return mapErrMsg(p.client.Call(serviceMethod, args, reply))
 }
 
 func (c *pluginSourceRPC) CleanUp(ctx context.Context, s ingest.Codec) error {
-	return c.call("Plugin.CleanUp", s, new(any))
+	return mapErrMsg(c.call("Plugin.CleanUp", s, new(any)))
 }
 
 func (c *pluginSourceRPC) Configure(conf map[string]any) error {
 	if conf == nil {
 		conf = map[string]any{}
 	}
-	return c.call("Plugin.Configure", &conf, new(any))
+	return mapErrMsg(c.call("Plugin.Configure", &conf, new(any)))
 }
 
 func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest.Object, error) {
 	var resp DownloadResponse
-	if err := c.call("Plugin.Download", s, &resp); err != nil {
+	if err := mapErrMsg(c.call("Plugin.Download", s, &resp)); err != nil {
 		return nil, err
 	}
 	con, err := c.mb.Dial(resp.Reader)
@@ -155,27 +145,18 @@ func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest
 	return obj, nil
 }
 
-func (c *pluginSourceRPC) Next(ctx context.Context) (*ingest.Codec, error) {
-	var resp NextResponse
-	if err := c.call("Plugin.Next", new(any), &resp); err != nil {
+func (c *pluginSourceRPC) Next(context.Context) (*ingest.Codec, error) {
+	var resp ingest.Codec
+
+	if err := mapErrMsg(c.call("Plugin.Next", new(any), &resp)); err != nil {
 		return nil, err
 	}
-	var err error
-	if resp.Err != "" {
-		err = errors.New(resp.Err)
-		if resp.Err == io.EOF.Error() {
-			err = io.EOF
-		}
-	}
 
-	return resp.S, err
+	return &resp, nil
 }
 
 func (c *pluginSourceRPC) Reset(ctx context.Context) error {
-	if err := c.call("Plugin.Reset", new(any), new(any)); err != nil {
-		return err
-	}
-	return nil
+	return mapErrMsg(c.call("Plugin.Reset", new(any), new(any)))
 }
 
 type DownloadResponse struct {
@@ -184,39 +165,36 @@ type DownloadResponse struct {
 	Reader   uint32
 }
 
-type NextResponse struct {
-	S   *ingest.Codec
-	Err string
-}
-
 type pluginDestinationRPCServer struct {
 	Impl Destination
 
-	mb      *hplugin.MuxBroker
-	ctx     context.Context
-	cancel  context.CancelFunc
-	timeOut time.Duration
+	l          hclog.Logger
+	mb         *hplugin.MuxBroker
+	ctx        context.Context
+	configured bool
+	timeOut    time.Duration
 }
 
 var ErrNotConfigured = errors.New("not configured")
 
 func (s *pluginDestinationRPCServer) Configure(c *map[string]any, resp *any) error {
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-
 	s.timeOut = DefaultTimeOut
 
-	return s.Impl.Configure(*c)
+	if err := s.Impl.Configure(*c); err != nil {
+		return err
+	}
+
+	s.configured = true
+
+	return nil
 }
 
 func (s *pluginDestinationRPCServer) Stat(args *ingest.Codec, resp *storage.ObjectInfo) error {
-	if s.ctx == nil {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	c, err := s.Impl.Stat(ctx, *args)
+	c, err := s.Impl.Stat(s.ctx, *args)
 	if err != nil {
 		return err
 	}
@@ -226,7 +204,7 @@ func (s *pluginDestinationRPCServer) Stat(args *ingest.Codec, resp *storage.Obje
 }
 
 func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) error {
-	if s.ctx == nil {
+	if !s.configured {
 		return ErrNotConfigured
 	}
 
@@ -240,10 +218,7 @@ func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) er
 		Reader:   con,
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeOut)
-	defer cancel()
-
-	u, err := s.Impl.Store(ctx, args.C, obj)
+	u, err := s.Impl.Store(s.ctx, args.C, obj)
 	if err != nil {
 		return err
 	}
@@ -325,5 +300,29 @@ type StoreRequest struct {
 		Len      int64
 		MimeType string
 		Reader   uint32
+	}
+}
+
+// mapErrMsg returns the original error if err's message matches one of a popular error.
+// Like io.EOF, context.ErrCancel
+func mapErrMsg(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch err.Error() {
+	case io.EOF.Error():
+		return io.EOF
+	case context.Canceled.Error():
+		return context.Canceled
+	case os.ErrNotExist.Error():
+		return os.ErrNotExist
+	case ErrNotConfigured.Error():
+		return ErrNotConfigured
+	case ErrNotImplemented.Error():
+		return ErrNotImplemented
+	default:
+		return err
+
 	}
 }

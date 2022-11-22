@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"os"
 
 	"github.com/hashicorp/go-hclog"
@@ -17,6 +18,9 @@ const (
 )
 
 func RunPluginServer(s Source, d Destination) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	handshakeConfig := hplugin.HandshakeConfig{
 		ProtocolVersion:  PluginMagicProtocalVersion,
 		MagicCookieKey:   PluginMagicCookieKey,
@@ -32,9 +36,13 @@ func RunPluginServer(s Source, d Destination) {
 	pluginMap := map[string]hplugin.Plugin{
 		"source": &PluginSource{
 			Impl: s,
+			ctx:  ctx,
+			l:    logger.With("component", "source"),
 		},
 		"destination": &PluginDestination{
 			Impl: d,
+			ctx:  ctx,
+			l:    logger.With("component", "destination"),
 		},
 	}
 

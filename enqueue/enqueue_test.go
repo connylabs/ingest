@@ -119,7 +119,7 @@ func TestEnqueue(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(eerr, e.Enqueue(ctx))
+		assert.ErrorIs(e.Enqueue(ctx), eerr)
 
 		n.AssertExpectations(t)
 		q.AssertExpectations(t)

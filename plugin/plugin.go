@@ -35,10 +35,13 @@ type Destination interface {
 
 type PluginSource struct {
 	Impl Source
+
+	l   hclog.Logger
+	ctx context.Context
 }
 
 func (p *PluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginSourceRPCServer{Impl: p.Impl, mb: mb}, nil
+	return &pluginSourceRPCServer{Impl: p.Impl, mb: mb, l: p.l, ctx: p.ctx}, nil
 }
 
 func (p *PluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -47,6 +50,9 @@ func (p *PluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}
 
 type PluginDestination struct {
 	Impl Destination
+
+	l   hclog.Logger
+	ctx context.Context
 }
 
 func (p *PluginDestination) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -54,7 +60,7 @@ func (p *PluginDestination) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interf
 }
 
 func (p *PluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginDestinationRPCServer{Impl: p.Impl, mb: mb}, nil
+	return &pluginDestinationRPCServer{Impl: p.Impl, mb: mb, l: p.l, ctx: p.ctx}, nil
 }
 
 func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
