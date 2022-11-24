@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/go-kit/log"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 
-	iplugin "github.com/connylabs/ingest/plugin"
+	"github.com/connylabs/ingest/plugin"
+	"github.com/connylabs/ingest/storage"
 	dstorage "github.com/connylabs/ingest/storage/drive"
 )
 
@@ -18,19 +19,18 @@ type destinationConfig struct {
 	Folder          string
 }
 
-type plugin struct{}
+var _ plugin.Destination = &destination{}
 
-// NewSource implements the Plugin interface.
-func (p *plugin) NewSource(_ context.Context, config map[string]interface{}) (iplugin.Source, error) {
-	return nil, iplugin.ErrNotImplemented
+type destination struct {
+	storage.Storage
 }
 
 // NewDestination implements the Plugin interface.
-func (p *plugin) NewDestination(ctx context.Context, config map[string]interface{}) (iplugin.Destination, error) {
+func (d *destination) Configure(config map[string]interface{}) error {
 	dc := new(destinationConfig)
 	err := mapstructure.Decode(config, dc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var o []option.ClientOption
 	if dc.APIKey != "" {
@@ -39,14 +39,19 @@ func (p *plugin) NewDestination(ctx context.Context, config map[string]interface
 	if dc.CredentialsFile != "" {
 		o = append(o, option.WithCredentialsFile(dc.CredentialsFile))
 	}
-	ds, err := drive.NewService(ctx, o...)
+	ds, err := drive.NewService(context.TODO(), o...)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create drive service: %w", err)
 	}
-	return dstorage.New(dc.Folder, ds, log.NewNopLogger())
+
+	drS, err := dstorage.New(dc.Folder, ds, plugin.DefaultLogger)
+	if err != nil {
+		return fmt.Errorf("failed to create drive storage: %w", err)
+	}
+	d.Storage = drS
+	return nil
 }
 
-// Register allows ingest to register this plugin.
-var Register iplugin.Register = func() (iplugin.Plugin, error) {
-	return &plugin{}, nil
+func main() {
+	plugin.RunPluginServer(nil, &destination{})
 }

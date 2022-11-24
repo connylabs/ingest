@@ -15,11 +15,11 @@ type Client struct {
 }
 
 // CleanUp provides a mock function with given fields: _a0, _a1
-func (_m *Client) CleanUp(_a0 context.Context, _a1 ingest.Identifiable) error {
+func (_m *Client) CleanUp(_a0 context.Context, _a1 ingest.Codec) error {
 	ret := _m.Called(_a0, _a1)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.Identifiable) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Codec) error); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
@@ -29,20 +29,20 @@ func (_m *Client) CleanUp(_a0 context.Context, _a1 ingest.Identifiable) error {
 }
 
 // Download provides a mock function with given fields: _a0, _a1
-func (_m *Client) Download(_a0 context.Context, _a1 ingest.Identifiable) (ingest.Object, error) {
+func (_m *Client) Download(_a0 context.Context, _a1 ingest.Codec) (*ingest.Object, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 ingest.Object
-	if rf, ok := ret.Get(0).(func(context.Context, ingest.Identifiable) ingest.Object); ok {
+	var r0 *ingest.Object
+	if rf, ok := ret.Get(0).(func(context.Context, ingest.Codec) *ingest.Object); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(ingest.Object)
+			r0 = ret.Get(0).(*ingest.Object)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, ingest.Identifiable) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, ingest.Codec) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

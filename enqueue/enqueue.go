@@ -2,6 +2,8 @@ package enqueue
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/go-kit/log"
@@ -62,33 +64,32 @@ func (e *enqueuer) Enqueue(ctx context.Context) error {
 // of a single, shared Nexter.
 func (e *enqueuer) enqueue(ctx context.Context) error {
 	if err := e.n.Reset(ctx); err != nil {
-		return err
+		return fmt.Errorf("failed to reset nexter: %w", err)
 	}
 	operation := func() error {
-		level.Info(e.l).Log("msg", "getting next item from source")
+		level.Info(e.l).Log("msg", "getting next items from source")
 		for {
 			level.Debug(e.l).Log("msg", "attempting to get next item")
-			item, err := e.n.Next(ctx)
+			codec, err := e.n.Next(ctx)
 			if err != nil {
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					return nil
 				}
 				level.Warn(e.l).Log("msg", "failed to get next item", "err", err.Error())
-				return err
-			}
-			codec, ok := any(item).(ingest.Codec)
-			if !ok {
-				codec = &ingest.SimpleCodec{XID: item.ID(), XName: item.Name()}
+
+				return fmt.Errorf("failed to get next item: %w", err)
 			}
 			data, err := codec.Marshal()
 			if err != nil {
 				level.Warn(e.l).Log("msg", "failed to marshal retrieved item", "err", err.Error())
-				return err
+
+				return fmt.Errorf("failed to marshal retrieved item: %w", err)
 			}
 
 			if err := e.q.Publish(e.queueSubject, data); err != nil {
 				level.Warn(e.l).Log("msg", "failed to publish item to queue", "err", err.Error())
-				return err
+
+				return fmt.Errorf("failed to publish item to queue: %w", err)
 			}
 		}
 	}

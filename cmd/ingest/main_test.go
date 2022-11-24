@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"html/template"
@@ -131,6 +132,11 @@ func TestRunGroup(t *testing.T) {
 	if v, ok := os.LookupEnv("E2E"); !ok || !(v == "1" || v == "true") {
 		t.Skip("To enable this test, set the E2E environment variable to 1 or true")
 	}
+
+	file100MB := make([]byte, 100000000)
+	_, err := rand.Read(file100MB)
+	require.Nil(t, err)
+
 	files := map[string]map[string][]s3File{
 		"minio_1": {
 			"source": []s3File{
@@ -145,7 +151,7 @@ func TestRunGroup(t *testing.T) {
 			"destination": []s3File{},
 			"source": []s3File{
 				{
-					data:   []byte("a file"),
+					data:   file100MB,
 					name:   "file_2",
 					prefix: "prefix",
 				},
@@ -162,12 +168,12 @@ func TestRunGroup(t *testing.T) {
 					prefix: "prefix1",
 				},
 				{
-					data:   []byte("a file"),
+					data:   file100MB,
 					name:   "file_2",
 					prefix: "prefix1",
 				},
 				{
-					data:   []byte("a file"),
+					data:   file100MB,
 					name:   "file_2",
 					prefix: "prefix2",
 				},
@@ -325,7 +331,23 @@ workflows:
 								return err
 							}
 							if oi.Err != nil {
-								return oi.Err
+								err := fmt.Errorf("failed to stat object: %w", oi.Err)
+								t.Error(t)
+								return err
+
+							}
+							buf, err := io.ReadAll(obj)
+							if err != nil {
+								err := fmt.Errorf("failed download object: %w", err)
+								t.Error(err)
+								return err
+							}
+							defer obj.Close()
+							if !bytes.Equal(buf, f.data) {
+
+								err := fmt.Errorf("content is not equal (diff at %d)", bytes.Compare(buf, f.data))
+								t.Error(err)
+								return err
 							}
 						}
 					}

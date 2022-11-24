@@ -14,11 +14,18 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/connylabs/ingest"
+	"github.com/connylabs/ingest/plugin"
 	iplugin "github.com/connylabs/ingest/plugin"
+	"github.com/connylabs/ingest/storage"
 	s3storage "github.com/connylabs/ingest/storage/s3"
 )
 
 const defaultEndpoint = "s3.amazonaws.com"
+
+type destinationConfig struct {
+	sourceConfig    `mapstructure:",squash"`
+	MetafilesPrefix string
+}
 
 type sourceConfig struct {
 	Endpoint        string
@@ -30,39 +37,17 @@ type sourceConfig struct {
 	Recursive       bool
 }
 
-type destinationConfig struct {
-	sourceConfig    `mapstructure:",squash"`
-	MetafilesPrefix string
+var _ plugin.Destination = &destination{}
+
+type destination struct {
+	storage.Storage
 }
 
-type plugin struct{}
-
-// NewSource implements the Plugin interface.
-func (p *plugin) NewSource(_ context.Context, config map[string]interface{}) (iplugin.Source, error) {
-	sc := new(sourceConfig)
-	err := mapstructure.Decode(config, sc)
-	if err != nil {
-		return nil, err
-	}
-	if sc.Endpoint == "" {
-		sc.Endpoint = defaultEndpoint
-	}
-	mc, err := minio.New(sc.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(sc.AccessKeyID, sc.SecretAccessKey, ""),
-		Secure: !sc.Insecure,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return newSource(mc, sc.Bucket, sc.Prefix, sc.Recursive), nil
-}
-
-// NewDestination implements the Plugin interface.
-func (p *plugin) NewDestination(_ context.Context, config map[string]interface{}) (iplugin.Destination, error) {
+func (d *destination) Configure(config map[string]interface{}) error {
 	dc := new(destinationConfig)
 	err := mapstructure.Decode(config, dc)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	if dc.Endpoint == "" {
 		dc.Endpoint = defaultEndpoint
@@ -72,14 +57,37 @@ func (p *plugin) NewDestination(_ context.Context, config map[string]interface{}
 		Secure: !dc.Insecure,
 	})
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create minio client:% w", err)
 	}
-	return s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, log.NewNopLogger()), nil
+
+	d.Storage = s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, log.NewNopLogger())
+
+	return nil
 }
 
-// Register allows ingest to register this plugin.
-var Register iplugin.Register = func() (iplugin.Plugin, error) {
-	return &plugin{}, nil
+// Configure will configure the source with the values given by config.
+func (p *source) Configure(config map[string]interface{}) error {
+	sc := new(sourceConfig)
+	err := mapstructure.Decode(config, sc)
+	if err != nil {
+		return err
+	}
+	if sc.Endpoint == "" {
+		sc.Endpoint = defaultEndpoint
+	}
+	mc, err := minio.New(sc.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(sc.AccessKeyID, sc.SecretAccessKey, ""),
+		Secure: !sc.Insecure,
+	})
+	if err != nil {
+		return err
+	}
+	p.bucket = sc.Bucket
+	p.mc = mc
+	p.prefix = sc.Prefix
+	p.recursive = sc.Recursive
+
+	return nil
 }
 
 // An Element is pushed and popped from the queue.
@@ -110,16 +118,6 @@ type source struct {
 	recursive bool
 }
 
-// newSource return a new source.
-func newSource(mc *minio.Client, bucket, prefix string, recursive bool) iplugin.Source {
-	return &source{
-		mc:        mc,
-		bucket:    bucket,
-		prefix:    prefix,
-		recursive: recursive,
-	}
-}
-
 // Reset resets the Nexter as if it was newly created.
 func (s *source) Reset(ctx context.Context) error {
 	s.mu.Lock()
@@ -134,7 +132,7 @@ func (s *source) Reset(ctx context.Context) error {
 }
 
 // Next ignores the context in this implementation
-func (s *source) Next(_ context.Context) (ingest.Identifiable, error) {
+func (s *source) Next(_ context.Context) (*ingest.Codec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -143,41 +141,25 @@ func (s *source) Next(_ context.Context) (ingest.Identifiable, error) {
 		if oi.Err != nil {
 			return nil, oi.Err
 		}
-		return &Element{
+		e := Element{
 			bucket: s.bucket,
 			prefix: s.prefix,
 			name:   strings.TrimPrefix(oi.Key, s.prefix),
-		}, nil
+		}
+		c := ingest.NewCodec(e.ID(), e.Name())
+		return &c, nil
 	}
 
 	return nil, io.EOF
 }
 
-type object struct {
-	mo       *minio.Object
-	size     int64
-	mimeType string
-}
-
-func (o *object) MimeType() string {
-	return o.mimeType
-}
-
-func (o *object) Len() int64 {
-	return o.size
-}
-
-func (o *object) Read(p []byte) (int, error) {
-	return o.mo.Read(p)
-}
-
-func (s *source) CleanUp(ctx context.Context, i ingest.Identifiable) error {
-	return s.mc.RemoveObject(ctx, s.bucket, i.ID(), minio.RemoveObjectOptions{})
+func (s *source) CleanUp(ctx context.Context, i ingest.Codec) error {
+	return s.mc.RemoveObject(ctx, s.bucket, i.ID, minio.RemoveObjectOptions{})
 }
 
 // Download will take an Element and download it from S3
-func (s *source) Download(ctx context.Context, i ingest.Identifiable) (ingest.Object, error) {
-	o, err := s.mc.GetObject(ctx, s.bucket, i.ID(), minio.GetObjectOptions{})
+func (s *source) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
+	o, err := s.mc.GetObject(ctx, s.bucket, i.ID, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object: %w", err)
 	}
@@ -186,5 +168,13 @@ func (s *source) Download(ctx context.Context, i ingest.Identifiable) (ingest.Ob
 		return nil, fmt.Errorf("failed to get stat: %w", err)
 	}
 
-	return &object{o, stat.Size, stat.ContentType}, nil
+	return &ingest.Object{
+		Reader:   o,
+		Len:      stat.Size,
+		MimeType: stat.ContentType,
+	}, nil
+}
+
+func main() {
+	iplugin.RunPluginServer(&source{}, &destination{})
 }

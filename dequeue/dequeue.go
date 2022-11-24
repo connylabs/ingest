@@ -110,23 +110,23 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 			g.Go(func() error {
 				// item, ok := any((*new(T))).(ingest.Codec)
 				// if !ok {
-				item := new(ingest.SimpleCodec)
+				item := new(ingest.Codec)
 				//}
 				if err := item.Unmarshal(raw.Data); err != nil {
 					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 					return err
 				}
-				u, err := d.process(ctx, item)
+				u, err := d.process(ctx, *item)
 				if err != nil {
-					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID, "name", item.Name, "err", err.Error())
 				} else {
-					level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+					level.Info(d.l).Log("msg", "successfully processed message", "id", item.ID, "name", item.Name, "data", string(raw.Data))
 				}
 				if err := raw.AckSync(); err != nil {
-					level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID(), "name", item.Name(), "err", err.Error())
+					level.Error(d.l).Log("msg", "failed to ack message", "id", item.ID, "name", item.Name, "err", err.Error())
 					return err
 				}
-				level.Debug(d.l).Log("msg", "acked message", "id", item.ID(), "name", item.Name(), "data", string(raw.Data))
+				level.Debug(d.l).Log("msg", "acked message", "id", item.ID, "name", item.Name, "data", string(raw.Data))
 				if u != nil {
 					uris[i] = u.String()
 				}
@@ -156,7 +156,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 	}
 }
 
-func (d *dequeuer) process(ctx context.Context, item ingest.Identifiable) (*url.URL, error) {
+func (d *dequeuer) process(ctx context.Context, item ingest.Codec) (*url.URL, error) {
 	var u *url.URL
 	operation := func() error {
 		_, err := d.s.Stat(ctx, item)
@@ -170,8 +170,11 @@ func (d *dequeuer) process(ctx context.Context, item ingest.Identifiable) (*url.
 		if !os.IsNotExist(err) {
 			return err
 		}
-
-		u, err = d.s.Store(ctx, item, d.c.Download)
+		obj, err := d.c.Download(ctx, item)
+		if err != nil {
+			return err
+		}
+		u, err = d.s.Store(ctx, item, *obj)
 		if err != nil {
 			return err
 		}
@@ -208,7 +211,7 @@ func (d *dequeuer) callWebhook(ctx context.Context, data []string) error {
 		return err
 	}
 	defer res.Body.Close()
-	defer io.Copy(io.Discard, res.Body)
+	defer io.Copy(io.Discard, res.Body) //nolint:errcheck
 
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("webhook request failed with status code: %d", res.StatusCode)

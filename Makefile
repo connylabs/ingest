@@ -6,7 +6,7 @@ ALL_ARCH := amd64 arm arm64
 BIN_DIR := bin
 PLUGIN_DIR := $(BIN_DIR)/plugin
 BINS := $(BIN_DIR)/$(OS)/$(ARCH)/ingest
-PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive)
+PLUGINS := $(addprefix $(PLUGIN_DIR)/$(OS)/$(ARCH)/,s3 drive noop)
 PROJECT := ingest
 PKG := github.com/connylabs/$(PROJECT)
 
@@ -26,7 +26,7 @@ GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
 
 EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd
-GOLINT_BINARY := $(shell pwd)/$(BIN_DIR)/golint
+GOLANGCI_LINT_BINARY := $(shell pwd)/$(BIN_DIR)/golangci-lint
 MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
 NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
@@ -82,7 +82,7 @@ $(PLUGINS): $(SRC) go.mod
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
 		CGO_ENABLED=1 \
-		go build -buildmode=plugin -mod=vendor -o $@ \
+		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
 		    ./plugins/$(@F) \
 	$(BUILD_SUFIX)
@@ -99,7 +99,7 @@ fmt:
 
 lint: lint-go
 
-gen-mock: mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/identifiable.go mocks/object.go mocks/minio_client.go
+gen-mock: mocks/nexter.go mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go mocks/subscription.go mocks/storage.go mocks/minio_client.go
 
 mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
@@ -123,35 +123,22 @@ mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	$(MOCKERY_BINARY) --filename $(@F) --name="Subscription"
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
-mocks/identifiable.go: ingest.go $(MOCKERY_BINARY)
+mocks/nexter.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Identifiable"
+	$(MOCKERY_BINARY) --filename $(@F) --name="Nexter"
 
-mocks/object.go: ingest.go $(MOCKERY_BINARY)
+mocks/storage.go: storage/storage.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Object"
+	$(MOCKERY_BINARY) --filename $(@F) --dir storage --name="Storage"
+
 
 mocks/minio_client.go: storage/s3/s3.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/storage/s3 --filename $(@F) --name="MinioClient"
 
-lint-go: $(GOLINT_BINARY)
-	@echo 'go vet $(GO_PKGS)'
-	@vet_res=$$(go vet $(GO_PKGS) 2>&1); if [ -n "$$vet_res" ]; then \
-		echo ""; \
-		echo "Go vet found issues. Please check the reported issues"; \
-		echo "and fix them if necessary before submitting the code for review:"; \
-		echo "$$vet_res"; \
-		exit 1; \
-	fi
-	@echo '$(GOLINT_BINARY) $(GO_PKGS)'
-	@lint_res=$$($(GOLINT_BINARY) $(GO_PKGS)); if [ -n "$$lint_res" ]; then \
-		echo ""; \
-		echo "Golint found style issues. Please check the reported issues"; \
-		echo "and fix them if necessary before submitting the code for review:"; \
-		echo "$$lint_res"; \
-		exit 1; \
-	fi
+lint-go: $(GOLANGCI_LINT_BINARY)
+	$(GOLANGCI_LINT_BINARY) run
+
 	@echo 'gofmt -d -s $(GO_FILES)'
 	@fmt_res=$$(gofmt -d -s $(GO_FILES)); if [ -n "$$fmt_res" ]; then \
 		echo ""; \
@@ -169,8 +156,8 @@ vendor:
 	go mod tidy
 	go mod vendor
 
-$(GOLINT_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ golang.org/x/lint/golint
+$(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
 $(NATS_BINARY): | $(BIN_DIR)
 	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats

@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/url"
 	"os"
 
@@ -23,8 +25,8 @@ type ObjectInfo struct {
 type Storage interface {
 	// Stat can be used to find information about the object corresponding to the given element.
 	// If the object does not exist, then Stat returns an error satisfied by os.IsNotExist.
-	Stat(ctx context.Context, element ingest.Identifiable) (*ObjectInfo, error)
-	Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error)
+	Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error)
+	Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error)
 }
 
 type instrumentedStorage struct {
@@ -32,7 +34,7 @@ type instrumentedStorage struct {
 	operationsTotal *prometheus.CounterVec
 }
 
-func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Identifiable) (*ObjectInfo, error) {
+func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error) {
 	oi, err := i.Storage.Stat(ctx, element)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("stat", "success").Inc()
@@ -40,18 +42,16 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Identifiab
 		i.operationsTotal.WithLabelValues("stat", "error").Inc()
 	}
 	return oi, err
-
 }
 
-func (i instrumentedStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
-	u, err := i.Storage.Store(ctx, element, download)
+func (i instrumentedStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
+	u, err := i.Storage.Store(ctx, element, obj)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
 	} else {
 		i.operationsTotal.WithLabelValues("store", "error").Inc()
 	}
 	return u, err
-
 }
 
 // NewInstrumentedStorage adds Prometheus metrics to any Storage.
@@ -75,7 +75,7 @@ func NewInstrumentedStorage(s Storage, r prometheus.Registerer) Storage {
 
 type multiStorage []Storage
 
-func (m multiStorage) Stat(ctx context.Context, element ingest.Identifiable) (*ObjectInfo, error) {
+func (m multiStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error) {
 	var o0 *ObjectInfo
 	ch := make(chan error, len(m))
 	for i := range m {
@@ -108,12 +108,22 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.Identifiable) (*O
 	return o0, err.Err()
 }
 
-func (m multiStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
+func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	var u0 *url.URL
 	ch := make(chan error, len(m))
+	// TODO: the whole copying could be improved, too many copies of the same data.
+	buf, err := io.ReadAll(obj.Reader)
+	if err != nil {
+		return nil, err
+	}
 	for i := range m {
+		obj := ingest.Object{
+			Len:      obj.Len,
+			MimeType: obj.MimeType,
+			Reader:   bytes.NewReader(buf),
+		}
 		go func(i int) {
-			u, err := m[i].Store(ctx, element, download)
+			u, err := m[i].Store(ctx, element, obj)
 			if i == 0 {
 				u0 = u
 			}
@@ -121,18 +131,17 @@ func (m multiStorage) Store(ctx context.Context, element ingest.Identifiable, do
 		}(i)
 	}
 	var i int
-	var err merrors.NilOrMultiError
+	var merr merrors.NilOrMultiError
 	for e := range ch {
 		if e != nil {
-			err.Add(e)
+			merr.Add(e)
 		}
 		i++
 		if i == len(m) {
 			close(ch)
 		}
 	}
-	return u0, err.Err()
-
+	return u0, merr.Err()
 }
 
 // NewMultiStorage creates a composite storage that combines many storages.

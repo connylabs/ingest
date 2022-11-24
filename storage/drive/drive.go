@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-kit/log"
+	hclog "github.com/hashicorp/go-hclog"
 	"google.golang.org/api/drive/v3"
 
 	"github.com/connylabs/ingest"
@@ -18,12 +18,12 @@ import (
 
 type driveStorage struct {
 	s *drive.Service
-	l log.Logger
+	l hclog.Logger
 	p string
 }
 
 // New returns a new Storage that can store objects to Google Drive.
-func New(folder string, service *drive.Service, l log.Logger) (storage.Storage, error) {
+func New(folder string, service *drive.Service, l hclog.Logger) (storage.Storage, error) {
 	parts := strings.Split(folder, "/")
 	if len(parts) < 1 {
 		return nil, errors.New("no folder was specified")
@@ -37,8 +37,8 @@ func New(folder string, service *drive.Service, l log.Logger) (storage.Storage, 
 	return ds, nil
 }
 
-func (ds *driveStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
-	f, err := ds.find(ctx, ds.p, []string{element.Name()})
+func (ds *driveStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+	f, err := ds.find(ctx, ds.p, []string{element.Name})
 	if err != nil {
 		return nil, err
 	}
@@ -75,18 +75,13 @@ func (ds *driveStorage) find(ctx context.Context, parent string, parts []string)
 	return nil, fs.ErrNotExist
 }
 
-func (ds *driveStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
+func (ds *driveStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	file := &drive.File{
-		Name:    element.Name(),
+		Name:    element.Name,
 		Parents: []string{ds.p},
 	}
 
-	object, err := download(ctx, element)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
-	}
-
-	f, err := ds.s.Files.Create(file).Media(object).SupportsAllDrives(true).Context(ctx).Do()
+	f, err := ds.s.Files.Create(file).Media(obj.Reader).SupportsAllDrives(true).Context(ctx).Do()
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,9 @@ require (
 	github.com/efficientgo/tools/core v0.0.0-20210129205121-421d0828c9a6
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-kit/log v0.2.0
+	github.com/hashicorp/go-hclog v1.0.0
+	github.com/hashicorp/go-multierror v1.1.1
+	github.com/hashicorp/go-plugin v1.4.6
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/minio/mc v0.0.0-20220719042210-cb7f9b6db205
 	github.com/minio/minio-go/v7 v7.0.31
@@ -20,7 +23,6 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/vektra/mockery/v2 v2.10.2
 	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91
-	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	google.golang.org/api v0.63.0
 )
@@ -64,8 +66,8 @@ require (
 	github.com/gosuri/uiprogress v0.0.1 // indirect
 	github.com/guptarohit/asciigraph v0.5.5 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
@@ -96,6 +98,7 @@ require (
 	github.com/minio/selfupdate v0.4.0 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/go-testing-interface v1.0.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20211018074035-2e021307bc4b // indirect

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	stdplugin "plugin"
 	"syscall"
 	"time"
 
@@ -93,8 +92,8 @@ type Config struct {
 
 // ConfigurePlugins configures the plugins found in path.
 func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
-	// Collect all of the named plugins.
-	plugins := make(map[string]plugin.Plugin)
+	// Collect all of the named pluginPaths.
+	pluginPaths := make(map[string]string)
 	sources := make(map[string]plugin.Source)
 	destinations := make(map[string]plugin.Destination)
 	pluginNames := make(map[string]struct{})
@@ -147,43 +146,43 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 		if err != nil {
 			return nil, nil, fmt.Errorf("none of the given paths contains the filename %s: %w", pn, err)
 		}
-		raw, err := stdplugin.Open(pp)
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not open plugin %q: %w", pn, err)
-		}
-		r, err := raw.Lookup("Register")
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not find symbol in plugin %q: %w", pn, err)
-		}
-		p, err := (*r.(*plugin.Register))()
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not register plugin %q: %w", pn, err)
-		}
-		plugins[pn] = p
+		pluginPaths[pn] = pp
 	}
 	// Instantiate the sources.
 	for i := range c.Sources {
-		s, err := plugins[c.Sources[i].Type].NewSource(ctx, c.Sources[i].Config)
-		if errors.Is(err, plugin.ErrNotImplemented) {
-			return nil, nil, fmt.Errorf("cannot instantiate source %q: plugin %q does not support acting as a source", c.Sources[i].Name, c.Sources[i].Type)
-		}
-		if err != nil {
+		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
+		ctx, cancel := context.WithCancel(ctx) //nolint:govet
+
+		_, s, err := plugin.NewPlugin(ctx, pluginPaths[c.Sources[i].Type])
+		if s == nil {
+			cancel()
 			return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", c.Sources[i].Name, err)
+		}
+
+		if err := s.Configure(c.Sources[i].Config); err != nil {
+			cancel()
+			return nil, nil, fmt.Errorf("failed to configure source %q: %w", c.Sources[i].Name, err)
 		}
 		sources[c.Sources[i].Name] = &SourceTyper{s, c.Sources[i].Type}
 	}
 	// Instantiate the destinations.
 	for i := range c.Destinations {
-		d, err := plugins[c.Destinations[i].Type].NewDestination(ctx, c.Destinations[i].Config)
-		if errors.Is(err, plugin.ErrNotImplemented) {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: plugin %q does not support acting as a destination", c.Destinations[i].Name, c.Destinations[i].Type)
+		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
+		ctx, cancel := context.WithCancel(ctx) //nolint:govet
+		d, _, err := plugin.NewPlugin(ctx, pluginPaths[c.Destinations[i].Type])
+		if d == nil {
+			cancel()
+			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err) //nolint:govet
 		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
+
+		if err := d.Configure(c.Destinations[i].Config); err != nil {
+			cancel()
+			return nil, nil, fmt.Errorf("failed to configure destination %q: %w", c.Destinations[i].Name, err)
 		}
 		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
+
 	}
-	return sources, destinations, nil
+	return sources, destinations, nil //nolint:govet
 }
 
 func firstPath(paths []string, filename string) (string, error) {

@@ -34,7 +34,7 @@ type minioStorage struct {
 }
 
 // New returns a new Storage that can store objects to S3.
-func New(bucket string, prefix string, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage {
+func New(bucket, prefix, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage {
 	return &minioStorage{
 		bucket:          bucket,
 		mc:              mc,
@@ -45,8 +45,8 @@ func New(bucket string, prefix string, metafilesPrefix string, mc MinioClient, l
 	}
 }
 
-func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (*storage.ObjectInfo, error) {
-	synced, done, err := ms.isObjectSynced(ctx, element.Name(), ms.useDone)
+func (ms *minioStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+	synced, done, err := ms.isObjectSynced(ctx, element.Name, ms.useDone)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (
 	// If the file exists but the done file does not,
 	// let's patch this up.
 	if !done && ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name)), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create missing meta object for existing file: %w", err)
 		}
 	}
@@ -66,27 +66,22 @@ func (ms *minioStorage) Stat(ctx context.Context, element ingest.Identifiable) (
 	return &storage.ObjectInfo{URI: ms.url(element).String()}, nil
 }
 
-func (ms *minioStorage) Store(ctx context.Context, element ingest.Identifiable, download func(context.Context, ingest.Identifiable) (ingest.Object, error)) (*url.URL, error) {
+func (ms *minioStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	u := ms.url(element)
-
-	object, err := download(ctx, element)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download %s: %w", element.ID(), err)
-	}
 
 	if _, err := ms.mc.PutObject(
 		ctx,
 		ms.bucket,
 		u.Path,
-		object,
-		object.Len(),
-		minio.PutObjectOptions{ContentType: object.MimeType()}, // I guess we can remove the mime type detection because we always use tar.gz files.
+		obj.Reader,
+		obj.Len,
+		minio.PutObjectOptions{ContentType: obj.MimeType}, // I guess we can remove the mime type detection because we always use tar.gz files.
 	); err != nil {
 		return nil, err
 	}
 
 	if ms.useDone {
-		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name())), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		if _, err := ms.mc.PutObject(ctx, ms.bucket, path.Join(ms.metafilesPrefix, doneKey(element.Name)), bytes.NewReader(make([]byte, 0)), 0, minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
 			return nil, fmt.Errorf("failed to create matching meta object for uploaded file: %w", err)
 		}
 	}
@@ -94,11 +89,11 @@ func (ms *minioStorage) Store(ctx context.Context, element ingest.Identifiable, 
 	return u, nil
 }
 
-func (ms *minioStorage) url(element ingest.Identifiable) *url.URL {
+func (ms *minioStorage) url(element ingest.Codec) *url.URL {
 	return &url.URL{
 		Scheme: "s3",
 		Host:   ms.bucket,
-		Path:   path.Join(ms.prefix, element.Name()),
+		Path:   path.Join(ms.prefix, element.Name),
 	}
 }
 
