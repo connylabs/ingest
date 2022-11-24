@@ -87,7 +87,7 @@ type Nexter interface {
 	// Reset initializes or resets the state of the Nexter.
 	// After Reset, calls of Next should retrieve all elements.
 	Reset(context.Context) error
-	// Next returns one SimpleCodec that represents an element.
+	// Next returns a *Codec that represents an element.
 	// If all elements were returned by Next, io.EOF must be returned.
 	Next(context.Context) (*Codec, error)
 }
