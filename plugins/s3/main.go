@@ -66,7 +66,7 @@ func (d *destination) Configure(config map[string]interface{}) error {
 }
 
 // Configure will configure the source with the values given by config.
-func (p *source) Configure(config map[string]interface{}) error {
+func (s *source) Configure(config map[string]interface{}) error {
 	sc := new(sourceConfig)
 	err := mapstructure.Decode(config, sc)
 	if err != nil {
@@ -82,10 +82,10 @@ func (p *source) Configure(config map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	p.bucket = sc.Bucket
-	p.mc = mc
-	p.prefix = sc.Prefix
-	p.recursive = sc.Recursive
+	s.bucket = sc.Bucket
+	s.mc = mc
+	s.prefix = sc.Prefix
+	s.recursive = sc.Recursive
 
 	return nil
 }

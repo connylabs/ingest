@@ -34,13 +34,13 @@ func RunPluginServer(s Source, d Destination) {
 	})
 
 	pluginMap := map[string]hplugin.Plugin{
-		"source": &PluginSource{
-			Impl: s,
+		"source": &pluginSource{
+			impl: s,
 			ctx:  ctx,
 			l:    logger.With("component", "source"),
 		},
-		"destination": &PluginDestination{
-			Impl: d,
+		"destination": &pluginDestination{
+			impl: d,
 			ctx:  ctx,
 			l:    logger.With("component", "destination"),
 		},
