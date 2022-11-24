@@ -16,7 +16,7 @@ import (
 	"github.com/connylabs/ingest/storage"
 )
 
-type DriveStorage struct {
+type driveStorage struct {
 	s *drive.Service
 	l hclog.Logger
 	p string
@@ -28,7 +28,7 @@ func New(folder string, service *drive.Service, l hclog.Logger) (storage.Storage
 	if len(parts) < 1 {
 		return nil, errors.New("no folder was specified")
 	}
-	ds := &DriveStorage{s: service, l: l}
+	ds := &driveStorage{s: service, l: l}
 	f, err := ds.find(context.Background(), "", parts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find folder: %w", err)
@@ -37,7 +37,7 @@ func New(folder string, service *drive.Service, l hclog.Logger) (storage.Storage
 	return ds, nil
 }
 
-func (ds *DriveStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+func (ds *driveStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
 	f, err := ds.find(ctx, ds.p, []string{element.Name})
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (ds *DriveStorage) Stat(ctx context.Context, element ingest.Codec) (*storag
 }
 
 // find is a helper that will recursively look for a file matching the given hierarchy.
-func (ds *DriveStorage) find(ctx context.Context, parent string, parts []string) (*drive.File, error) {
+func (ds *driveStorage) find(ctx context.Context, parent string, parts []string) (*drive.File, error) {
 	query := fmt.Sprintf("name = '%s' and trashed=false", parts[0])
 	if parent != "" {
 		query += fmt.Sprintf(" and '%s' in parents", parent)
@@ -75,7 +75,7 @@ func (ds *DriveStorage) find(ctx context.Context, parent string, parts []string)
 	return nil, fs.ErrNotExist
 }
 
-func (ds *DriveStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
+func (ds *driveStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	file := &drive.File{
 		Name:    element.Name,
 		Parents: []string{ds.p},

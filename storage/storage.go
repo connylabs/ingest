@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net/url"
 	"os"
@@ -107,10 +106,6 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectIn
 		return o0, os.ErrNotExist
 	}
 	return o0, err.Err()
-}
-
-func (m multiStorage) Configure(map[string]any) error {
-	return errors.New("not implemented")
 }
 
 func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {

@@ -60,7 +60,7 @@ func (d *destination) Configure(config map[string]interface{}) error {
 		return fmt.Errorf("failed to create minio client:% w", err)
 	}
 
-	d.Storage = s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, dc.MetafilesPrefix != "", log.NewNopLogger())
+	d.Storage = s3storage.New(dc.Bucket, dc.Prefix, dc.MetafilesPrefix, mc, log.NewNopLogger())
 
 	return nil
 }

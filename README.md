@@ -124,11 +124,11 @@ type Object struct {
 
 [embedmd]:# (ingest.go /\/\/ Client/ /}/)
 ```go
-// Client is able to create an Object from a SimpleCodec.
+// Client is able to create an Object from a Codec.
 // Client must be implemented by the caller.
 type Client interface {
-	// Download converts a SimpleCodec into an Object.
-	// In most cases it will use the ID of the SimpleCodec
+	// Download converts a Codec into an Object.
+	// In most cases it will use the ID of the Codec
 	// to download the object from an API,
 	Download(context.Context, Codec) (*Object, error)
 	// CleanUp is called after an object is uploaded

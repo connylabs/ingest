@@ -14,13 +14,13 @@ type Codec struct {
 }
 
 // Marshal serializes the Identifiable so it can be sent on the queue.
-func (s *Codec) Marshal() ([]byte, error) {
-	return json.Marshal(s)
+func (c *Codec) Marshal() ([]byte, error) {
+	return json.Marshal(c)
 }
 
 // Unmarshal deserializes a message from the qeueue back into an Identifiable.
-func (s *Codec) Unmarshal(data []byte) error {
-	return json.Unmarshal(data, s)
+func (c *Codec) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, c)
 }
 
 // NewCodec creates a Codec from an existing Identifiable.

@@ -34,14 +34,14 @@ type minioStorage struct {
 }
 
 // New returns a new Storage that can store objects to S3.
-func New(bucket, prefix, metafilesPrefix string, mc MinioClient, useDone bool, l log.Logger) storage.Storage {
+func New(bucket, prefix, metafilesPrefix string, mc MinioClient, l log.Logger) storage.Storage {
 	return &minioStorage{
 		bucket:          bucket,
 		mc:              mc,
 		l:               l,
 		prefix:          prefix,
 		metafilesPrefix: metafilesPrefix,
-		useDone:         useDone,
+		useDone:         metafilesPrefix != "",
 	}
 }
 

@@ -83,7 +83,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 			if err != nil {
 				level.Warn(e.l).Log("msg", "failed to marshal retrieved item", "err", err.Error())
 
-				return fmt.Errorf("failed to marshel retrieved item: %w", err)
+				return fmt.Errorf("failed to marshal retrieved item: %w", err)
 			}
 
 			if err := e.q.Publish(e.queueSubject, data); err != nil {
