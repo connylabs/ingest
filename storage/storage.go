@@ -116,22 +116,11 @@ func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj inges
 	if err != nil {
 		return nil, err
 	}
-	rs := bytes.NewReader(buf)
 	for i := range m {
-		tmp := &bytes.Buffer{}
-		_, err := rs.Seek(0, io.SeekStart)
-		if err != nil {
-			return nil, err
-		}
-		_, err = io.Copy(tmp, rs)
-		if err != nil {
-			return nil, err
-		}
-
 		obj := ingest.Object{
 			Len:      obj.Len,
 			MimeType: obj.MimeType,
-			Reader:   tmp,
+			Reader:   bytes.NewReader(buf),
 		}
 		go func(i int) {
 			u, err := m[i].Store(ctx, element, obj)
