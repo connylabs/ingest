@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-	iplugin.RunPluginServer(iplugin.NewNoopSource(iplugin.DefaultLogger), iplugin.NewNoopStore(iplugin.DefaultLogger))
+	iplugin.RunPluginServer(iplugin.NewNoopSource(iplugin.DefaultLogger), iplugin.NewNoopDestination(iplugin.DefaultLogger))
 }

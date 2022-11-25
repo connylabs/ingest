@@ -31,14 +31,14 @@ const (
 	defaultObjURL     = "http://host:9090/path"
 )
 
-func NewNoopSource(l hclog.Logger) *NoopSource {
-	return &NoopSource{
+func NewNoopSource(l hclog.Logger) *noopSource {
+	return &noopSource{
 		l: l,
 	}
 }
 
-// NoopSource returns elements from a buffer of elements.
-type NoopSource struct {
+// noopSource returns elements from a buffer of elements.
+type noopSource struct {
 	ptr      int
 	buf      []ingest.Codec
 	resetErr bool
@@ -47,8 +47,8 @@ type NoopSource struct {
 }
 
 // NewSource implements the Plugin interface.
-func (p *NoopSource) Configure(config map[string]interface{}) error {
-	p.l.Debug("configuring plugin")
+func (s *noopSource) Configure(config map[string]interface{}) error {
+	s.l.Debug("configuring plugin")
 
 	if v, ok := config["error"]; ok {
 		if v, ok := v.(string); ok {
@@ -59,44 +59,44 @@ func (p *NoopSource) Configure(config map[string]interface{}) error {
 
 	if v, ok := config["resetErr"]; ok {
 		if v, ok := v.(bool); ok {
-			p.resetErr = v
+			s.resetErr = v
 		}
 	}
-	p.ptr = 0
-	p.buf = []ingest.Codec{defaultCodec}
+	s.ptr = 0
+	s.buf = []ingest.Codec{defaultCodec}
 	return nil
 }
 
 // Reset resets the Nexter as if it was newly created.
-func (p *NoopSource) Reset(ctx context.Context) error {
-	p.l.Debug("reset nexter")
-	if p.resetErr {
+func (s *noopSource) Reset(ctx context.Context) error {
+	s.l.Debug("reset nexter")
+	if s.resetErr {
 		return errors.New("reset error")
 	}
-	p.m.Lock()
-	defer p.m.Unlock()
-	p.ptr = 0
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.ptr = 0
 
 	return nil
 }
 
 // Next ignores the context in this implementation.
-func (p *NoopSource) Next(_ context.Context) (*ingest.Codec, error) {
-	p.l.Debug("call next", "counter", p.ptr)
-	p.m.Lock()
-	defer p.m.Unlock()
-	if p.ptr >= len(p.buf) {
+func (s *noopSource) Next(_ context.Context) (*ingest.Codec, error) {
+	s.l.Debug("call next", "counter", s.ptr)
+	s.m.Lock()
+	defer s.m.Unlock()
+	if s.ptr >= len(s.buf) {
 		return nil, io.EOF
 	}
 
 	defer func() {
-		p.ptr++
+		s.ptr++
 	}()
-	return &p.buf[p.ptr], nil
+	return &s.buf[s.ptr], nil
 }
 
-func (p *NoopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
-	p.l.Debug("call cleanup")
+func (s *noopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
+	s.l.Debug("call cleanup")
 	if i != defaultCodec {
 		return fmt.Errorf("id %q not found", i.ID)
 	}
@@ -105,7 +105,7 @@ func (p *NoopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
 }
 
 // Download will take an Element and download it from S3
-func (s *NoopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
+func (s *noopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
 	if i != defaultCodec {
 		return nil, fmt.Errorf("id %q not found", i.ID)
 	}
@@ -116,18 +116,18 @@ func (s *NoopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Obje
 	}, nil
 }
 
-func NewNoopStore(l hclog.Logger) *NoopDestination {
-	return &NoopDestination{
+func NewNoopDestination(l hclog.Logger) *noopDestination {
+	return &noopDestination{
 		l: l,
 	}
 }
 
-type NoopDestination struct {
+type noopDestination struct {
 	l hclog.Logger
 }
 
-func (p *NoopDestination) Configure(config map[string]interface{}) error {
-	p.l.Debug("configuring plugin")
+func (d *noopDestination) Configure(config map[string]interface{}) error {
+	d.l.Debug("configuring plugin")
 
 	if v, ok := config["error"]; ok {
 		if v, ok := v.(string); ok {
@@ -139,7 +139,7 @@ func (p *NoopDestination) Configure(config map[string]interface{}) error {
 	return nil
 }
 
-func (ms *NoopDestination) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
+func (d *noopDestination) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
 	if element != defaultCodec {
 		return nil, os.ErrNotExist
 	}
@@ -148,7 +148,7 @@ func (ms *NoopDestination) Stat(ctx context.Context, element ingest.Codec) (*sto
 	}, nil
 }
 
-func (ms *NoopDestination) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
+func (d *noopDestination) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
 	b, err := io.ReadAll(obj.Reader)
 	if err != nil {
 		return nil, err

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -319,33 +318,34 @@ workflows:
 				for m, bs := range ensureFiles {
 					for b, fs := range bs {
 						for _, f := range fs {
-							obj, err := mcs[m].GetObject(tctx, b, path.Join(f.prefix, f.name), minio.GetObjectOptions{})
+							key := path.Join(f.prefix, f.name)
+							obj, err := mcs[m].GetObject(tctx, b, key, minio.GetObjectOptions{})
 							if err != nil {
-								return err
+								return fmt.Errorf("failed to get key %q in bucket %q: %w", key, b, err)
 							}
 							if obj == nil {
-								return errors.New("not found")
+								return fmt.Errorf("key %q not found in bucket %q", key, b)
 							}
 							oi, err := obj.Stat()
 							if err != nil {
-								return err
+								return fmt.Errorf("failed to stat key %q in bucket %q: %w", key, b, err)
 							}
 							if oi.Err != nil {
-								err := fmt.Errorf("failed to stat object: %w", oi.Err)
+								t.Logf("failed to stat key %q in bucket %q: %s", key, b, err.Error())
 								t.Error(t)
 								return err
 
 							}
 							buf, err := io.ReadAll(obj)
 							if err != nil {
-								err := fmt.Errorf("failed download object: %w", err)
+								err := fmt.Errorf("failed download object %q: %w", key, err)
 								t.Error(err)
 								return err
 							}
 							defer obj.Close()
 							if !bytes.Equal(buf, f.data) {
 
-								err := fmt.Errorf("content is not equal (diff at %d)", bytes.Compare(buf, f.data))
+								err := fmt.Errorf("content for %q is not equal (diff at %d)", key, bytes.Compare(buf, f.data))
 								t.Error(err)
 								return err
 							}
@@ -358,6 +358,8 @@ workflows:
 			if err == nil {
 				break
 			}
+
+			t.Logf("not all files a synced; retrying: %s\n", err.Error())
 
 			ticker := time.NewTicker(time.Second)
 			select {

@@ -5,14 +5,14 @@ Ingest is a pluggable tool that makes it easy to orchestrate the synchronization
 ## Concept
 
 Ingest includes a main binary and some plugins for some common storage systems, like S3.
-Each plugin can implement a data source, a target or both.
-The S3 plugin implements both the source and target interface, but some plugins may only be able to act as either of them.
+Each plugin can implement a data source, a destination, or both.
+The S3 plugin implements both the source and destination interface, but some plugins may only be able to act as either of them.
 The plugins are loaded at runtime and enable users to implement their own custom plugins.
 
 ### Workflows
 
-A workflow specifies a data source and one or more targets.
-When configured, objects from the source will be copied to all targets.
+A workflow specifies a data source and one or more destinations.
+When configured, objects from the source will be copied to all destinations.
 
 ## Configuration
 
@@ -62,7 +62,7 @@ It will scan the configured sources and push a message for each item in the sour
 
 The other part is the dequeuer.
 It is started with the flag `--mode=dequeue`.
-It will pop messages from the NATS stream and copy each object identified by the [NATS](https://nats.io/) message to the configured targets.
+It will pop messages from the NATS stream and copy each object identified by the [NATS](https://nats.io/) message to the configured destinations.
 
 
 
