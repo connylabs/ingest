@@ -20,7 +20,7 @@ type queue struct {
 }
 
 // New is able to connect to the queue
-func New(url string, stream string, replicas int, subjects []string, reg prometheus.Registerer) (ingest.Queue, error) {
+func New(url string, stream string, replicas int, subjects []string, maxMsgs int64, reg prometheus.Registerer) (ingest.Queue, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
 		return &queue{conn: nil}, err
@@ -35,6 +35,7 @@ func New(url string, stream string, replicas int, subjects []string, reg prometh
 		Subjects:  subjects,
 		Retention: nats.InterestPolicy,
 		Replicas:  replicas,
+		MaxMsgs:   maxMsgs,
 	})
 	if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		si, err := js.StreamInfo(stream)
