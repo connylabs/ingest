@@ -70,6 +70,7 @@ func main() {
 type flags struct {
 	listenInternal    *string
 	queueEndpoint     *string
+	replicas          *int
 	stream            *string
 	subject           *string
 	consumer          *string
@@ -92,6 +93,7 @@ func Main() error {
 	appFlags := &flags{
 		listenInternal:    flag.String("listen", ":9090", "The address at which to listen for health and metrics"),
 		queueEndpoint:     flag.String("queue-endpoint", "nats://localhost:4222", "The queue endpoint to which to connect"),
+		replicas:          flag.Int("stream-replicas", 1, "The replicas of the NATS stream"),
 		stream:            flag.String("stream", "ingest", "The stream name to which to connect"),
 		subject:           flag.String("subject", "ingest", "The subject name to which to connect"),
 		consumer:          flag.String("consumer", "ingest", "The prefix to use for dymanically created consumer names"),
@@ -156,7 +158,7 @@ func Main() error {
 	if *appFlags.dryRun {
 		return nil
 	}
-	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, []string{strings.Join([]string{*appFlags.subject, "*"}, ".")}, reg)
+	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, *appFlags.replicas, []string{strings.Join([]string{*appFlags.subject, "*"}, ".")}, reg)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate queue: %w", err)
 	}
