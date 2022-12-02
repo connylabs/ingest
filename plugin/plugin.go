@@ -61,17 +61,11 @@ func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
 	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx}, nil
 }
 
-func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
+func rpcClient(path string) (hplugin.ClientProtocol, error) {
 	handshakeConfig := hplugin.HandshakeConfig{
 		ProtocolVersion:  PluginMagicProtocalVersion,
 		MagicCookieKey:   PluginMagicCookieKey,
 		MagicCookieValue: PluginCookieValue,
-	}
-
-	// pluginMap is the map of plugins we can dispense.
-	pluginMap := map[string]hplugin.Plugin{
-		"destination": &pluginDestination{},
-		"source":      &pluginSource{},
 	}
 
 	logger := hclog.New(&hclog.LoggerOptions{
@@ -81,46 +75,66 @@ func NewPlugin(ctx context.Context, path string) (Destination, Source, error) {
 		Level:      hclog.Debug,
 	})
 
-	// We're a host! Start by launching the plugin process.
+	pluginMap := map[string]hplugin.Plugin{
+		"destination": &pluginDestination{},
+		"source":      &pluginSource{},
+	}
+
 	client := hplugin.NewClient(&hplugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
-		Cmd:             exec.CommandContext(ctx, path),
+		Cmd:             exec.Command(path),
 		Logger:          logger,
 	})
 
-	// Connect via RPC
 	rpcClient, err := client.Client()
 	if err != nil {
 		client.Kill()
-		return nil, nil, err
+		return nil, fmt.Errorf("failed to create rpc client interface: %w", err)
 	}
-	go func() {
-		// TODO find out how to exit gracefully
-		// Sometime the RPC server keeps running usings lots of CPU.
+	return rpcClient, nil
+}
 
-		// EDIT: We can also remove this because we kill the process when using exec.CommandContext
-		<-ctx.Done()
-		logger.Info("closing rpc client")
-		if err := rpcClient.Close(); err != nil {
-			logger.Error("failed to close rpc client", "err", err.Error())
+func NewDestination(path string) (Destination, error) {
+	rc, err := rpcClient(path)
+	if err != nil {
+		return nil, err
+	}
+	return newDestination(rc)
+}
+
+func NewSource(path string) (Source, error) {
+	rc, err := rpcClient(path)
+	if err != nil {
+		return nil, err
+	}
+	return newSource(rc)
+}
+
+func newDestination(cp hplugin.ClientProtocol) (Destination, error) {
+	raw, err := cp.Dispense("destination")
+	if err != nil {
+		err = fmt.Errorf("failed to dispense destination: %w", err)
+		if cErr := cp.Close(); cErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to close client: %w", cErr))
 		}
-		client.Kill()
-	}()
 
-	mErr := &multierror.Error{}
-	rawD, errD := rpcClient.Dispense("destination")
-	if errD != nil {
-		mErr = multierror.Append(mErr, errD)
+		return nil, err
+
 	}
-	rawS, errS := rpcClient.Dispense("source")
-	if errS != nil {
-		mErr = multierror.Append(mErr, errS)
+	return raw.(Destination), nil
+}
+
+func newSource(cp hplugin.ClientProtocol) (Source, error) {
+	raw, err := cp.Dispense("source")
+	if err != nil {
+		err = fmt.Errorf("failed to dispense source: %w", err)
+		if cErr := cp.Close(); cErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to close client: %w", cErr))
+		}
+
+		return nil, err
+
 	}
-	if mErr.Len() == 2 {
-		rpcClient.Close()
-		client.Kill()
-		return nil, nil, fmt.Errorf("failed to dispense any rpc client: %w", mErr)
-	}
-	return rawD.(Destination), rawS.(Source), mErr.ErrorOrNil()
+	return raw.(Source), nil
 }

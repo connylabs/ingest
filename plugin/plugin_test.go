@@ -22,7 +22,7 @@ func TestNewPluginSource(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		_, p, err := NewPlugin(ctx, noopPath)
+		p, err := NewSource(noopPath)
 		require.Nil(t, err)
 
 		_, err = p.Next(ctx)
@@ -58,7 +58,7 @@ func TestNewPluginSource(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		_, p, err := NewPlugin(ctx, noopPath)
+		p, err := NewSource(noopPath)
 		require.Nil(t, err)
 
 		_, err = p.Download(ctx, defaultCodec)
@@ -85,10 +85,7 @@ func TestNewPluginSource(t *testing.T) {
 	})
 
 	t.Run("Configure", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-
-		_, p, err := NewPlugin(ctx, noopPath)
+		p, err := NewSource(noopPath)
 		require.Nil(t, err)
 
 		assert.Error(t, p.Configure(map[string]any{"error": "an error"}))
@@ -97,12 +94,9 @@ func TestNewPluginSource(t *testing.T) {
 	})
 }
 
-func TestPluginStore(t *testing.T) {
+func TestPluginDestination(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-
-		p, _, err := NewPlugin(ctx, noopPath)
+		p, err := NewDestination(noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
@@ -114,7 +108,7 @@ func TestPluginStore(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		p, _, err := NewPlugin(ctx, noopPath)
+		p, err := NewDestination(noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
@@ -136,7 +130,7 @@ func TestPluginStore(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		p, _, err := NewPlugin(ctx, noopPath)
+		p, err := NewDestination(noopPath)
 		require.Nil(t, err)
 		require.NotNil(t, p)
 
