@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -97,8 +98,11 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		msgs, err := sub.Pop(d.batchSize, nats.Context(tctx))
 		cancel()
 		if err != nil {
-			level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
+			if !errors.Is(err, context.Canceled) {
+				level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
+			}
 			continue
+
 		}
 		level.Info(d.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
 

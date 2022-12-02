@@ -1,6 +1,9 @@
 package queue
 
 import (
+	"context"
+	"errors"
+
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -29,7 +32,9 @@ func (s *subscription) Close() error {
 func (s *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
 	msgs, err := s.sub.Fetch(batch, opts...)
 	if err != nil {
-		s.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
+		if !errors.Is(err, context.Canceled) {
+			s.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
+		}
 		return nil, err
 	}
 	s.queueInteractionsTotalCounter.WithLabelValues("pop", "success").Inc()
