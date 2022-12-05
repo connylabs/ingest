@@ -153,7 +153,8 @@ func Main() error {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectories)
+	pm := &plugin.PluginManager{Interval: 5 * time.Second}
+	sources, destinations, err := c.ConfigurePlugins(pm, *appFlags.pluginDirectories)
 	if err != nil {
 		return err
 	}
@@ -201,6 +202,17 @@ func Main() error {
 		}, func(error) {
 			l.Close()
 		})
+
+		// Stop the application if a plugin has crashed.
+		g.Add(func() error {
+			return pm.Watch(ctx)
+		},
+			func(error) {
+				level.Info(logger).Log("msg", "stopping all plugins")
+				if err := pm.Stop(); err != nil {
+					level.Error(logger).Log("msg", "failed to stop plugins", "err", err.Error())
+				}
+			})
 	}
 
 	// Exit gracefully on SIGINT and SIGTERM.

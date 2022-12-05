@@ -1,13 +1,12 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"runtime"
 	"testing"
-	"time"
 
+	"github.com/connylabs/ingest/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,16 +72,14 @@ workflows:
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			t.Cleanup(func() {
-				cancel()
-				time.Sleep(time.Millisecond)
-			})
-
 			c, err := New(tc.config)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			_, _, err = c.ConfigurePlugins(ctx, tc.paths)
+			pm := &plugin.PluginManager{}
+			t.Cleanup(func() {
+				assert.NoError(t, pm.Stop())
+			})
+			_, _, err = c.ConfigurePlugins(pm, tc.paths)
 			assert.ErrorIs(t, err, tc.err, errors.Unwrap(err))
 		})
 	}
