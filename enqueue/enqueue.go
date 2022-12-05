@@ -71,7 +71,7 @@ func (e *enqueuer) enqueue(ctx context.Context) error {
 
 	codec, err := e.n.Next(ctx)
 	count := 0
-	for ; err != nil; codec, err = e.n.Next(ctx) {
+	for ; err == nil; codec, err = e.n.Next(ctx) {
 		data, err := codec.Marshal()
 		if err != nil {
 			return fmt.Errorf("failed to marshal retrieved item: %w", err)
