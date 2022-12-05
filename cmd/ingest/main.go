@@ -210,11 +210,13 @@ func Main() error {
 func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, sources map[string]plugin.Source, destinations map[string]plugin.Destination, workflows []config.Workflow, logger log.Logger, reg prometheus.Registerer) error {
 	for _, w := range workflows {
 		logger = log.With(logger, "workflow", w.Name)
-		reg := prometheus.WrapRegistererWith(prometheus.Labels{"workflow": w.Name}, reg)
+		reg := prometheus.WrapRegistererWith(prometheus.Labels{
+			"source":   w.Source,
+			"workflow": w.Name,
+		}, reg)
 		switch *appFlags.mode {
 		case enqueueMode:
 			ctx, cancel := context.WithCancel(ctx)
-			reg := prometheus.WrapRegistererWith(prometheus.Labels{"source": w.Source}, reg)
 			logger := log.With(logger, "mode", enqueueMode, "source", w.Source)
 			qc, err := enqueue.New(sources[w.Source], strings.Join([]string{*appFlags.subject, w.Name}, "."), q, reg, logger)
 			if err != nil {
