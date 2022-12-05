@@ -98,7 +98,7 @@ func Main() error {
 		stream:            flag.String("stream", "ingest", "The stream name to which to connect"),
 		subject:           flag.String("subject", "ingest", "The subject name to which to connect"),
 		consumer:          flag.String("consumer", "ingest", "The prefix to use for dynamically created consumer names"),
-		maxMsgs:           flag.Int64("max-msgs", 1000000, "The maximum amount of messages in the jet stream"),
+		maxMsgs:           flag.Int64("max-msgs", 0, "The maximum amount of messages in the jet stream. Set to 0 to remove limit"),
 		printVersion:      flag.Bool("version", false, "Show version"),
 		logLevel:          flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
 		mode:              flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
