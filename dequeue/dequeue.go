@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -94,13 +92,9 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		default:
 		}
 
-		tctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		msgs, err := sub.Pop(d.batchSize, nats.Context(tctx))
-		cancel()
+		msgs, err := sub.Pop(d.batchSize, nats.Context(ctx))
 		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
-			}
+			level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
 			continue
 
 		}
@@ -112,10 +106,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		for i, raw := range msgs {
 			i, raw := i, raw
 			g.Go(func() error {
-				// item, ok := any((*new(T))).(ingest.Codec)
-				// if !ok {
 				item := new(ingest.Codec)
-				//}
 				if err := item.Unmarshal(raw.Data); err != nil {
 					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 					return err
