@@ -74,6 +74,7 @@ type flags struct {
 	stream            *string
 	subject           *string
 	consumer          *string
+	maxMsgs           *int64
 	printVersion      *bool
 	logLevel          *string
 	mode              *string
@@ -96,7 +97,8 @@ func Main() error {
 		replicas:          flag.Int("stream-replicas", 1, "The replicas of the NATS stream"),
 		stream:            flag.String("stream", "ingest", "The stream name to which to connect"),
 		subject:           flag.String("subject", "ingest", "The subject name to which to connect"),
-		consumer:          flag.String("consumer", "ingest", "The prefix to use for dymanically created consumer names"),
+		consumer:          flag.String("consumer", "ingest", "The prefix to use for dynamically created consumer names"),
+		maxMsgs:           flag.Int64("max-msgs", 0, "The maximum amount of messages in the jet stream. Set to 0 to remove limit"),
 		printVersion:      flag.Bool("version", false, "Show version"),
 		logLevel:          flag.String("log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", availableLogLevels)),
 		mode:              flag.String("mode", "", fmt.Sprintf("Mode of the service. Possible values: %s", availableModes)),
@@ -158,7 +160,7 @@ func Main() error {
 	if *appFlags.dryRun {
 		return nil
 	}
-	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, *appFlags.replicas, []string{strings.Join([]string{*appFlags.subject, "*"}, ".")}, reg)
+	q, err := queue.New(*appFlags.queueEndpoint, *appFlags.stream, *appFlags.replicas, []string{strings.Join([]string{*appFlags.subject, "*"}, ".")}, *appFlags.maxMsgs, reg)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate queue: %w", err)
 	}
