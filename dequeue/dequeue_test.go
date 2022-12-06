@@ -33,10 +33,9 @@ func TestDequeue(t *testing.T) {
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
 
-		sub.On("Pop", 1, mock.Anything).Return([]*nats.Msg{}, nil).Once().
-			On("Pop", 1, mock.Anything).Return([]*nats.Msg{}, nil).After(1 * time.Millisecond)
-
-		sub.On("Close").Return(nil).Once()
+		sub.On("Pop", mock.Anything, 1).Return([]*nats.Msg{}, nil).Once().
+			On("Pop", mock.Anything, 1).Return([]*nats.Msg{}, nil).After(time.Millisecond).
+			On("Close").Return(nil).Once()
 
 		d := New("", c, s, q, "str", "con", "sub", 1, 1, true, logger, reg)
 
@@ -63,9 +62,9 @@ func TestDequeue(t *testing.T) {
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
 
-		sub.On("Pop", 1, mock.Anything).Return([]*nats.Msg{msg}, nil).Once()
-		sub.On("Pop", 1, mock.Anything).Return([]*nats.Msg{}, nil)
-		sub.On("Close").Return(nil).Once()
+		sub.On("Pop", mock.Anything, 1).Return([]*nats.Msg{msg}, nil).Once().
+			On("Pop", mock.Anything, 1).Return([]*nats.Msg{}, nil).
+			On("Close").Return(nil).Once()
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 		c.On("Download", mock.Anything, _t).Return(&ingest.Object{Reader: strings.NewReader("hello")}, nil)
@@ -125,9 +124,9 @@ func TestDequeue(t *testing.T) {
 
 		q.On("PullSubscribe", "sub", "con", mock.Anything).Return(sub, nil).Once()
 
-		sub.On("Pop", 1, mock.Anything).Return([]*nats.Msg{msg}, nil).Once()
-		sub.On("Pop", 1, mock.Anything).Return([]*nats.Msg{}, nil)
-		sub.On("Close").Return(nil).Once()
+		sub.On("Pop", mock.Anything, 1).Return([]*nats.Msg{msg}, nil).Once().
+			On("Pop", mock.Anything, 1).Return([]*nats.Msg{}, nil).
+			On("Close").Return(nil).Once()
 
 		c.On("CleanUp", mock.Anything, mock.Anything).Return(nil).Once()
 

@@ -1,6 +1,9 @@
 package queue
 
 import (
+	"context"
+	"errors"
+
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -8,14 +11,14 @@ import (
 )
 
 type subscription struct {
-	sub                           *nats.Subscription
-	queueInteractionsTotalCounter *prometheus.CounterVec
+	sub              *nats.Subscription
+	popsTotalCounter *prometheus.CounterVec
 }
 
 func newSubscription(sub *nats.Subscription, cv *prometheus.CounterVec) ingest.Subscription {
 	return &subscription{
-		sub:                           sub,
-		queueInteractionsTotalCounter: cv,
+		sub:              sub,
+		popsTotalCounter: cv,
 	}
 }
 
@@ -26,13 +29,22 @@ func (s *subscription) Close() error {
 	return s.sub.Drain()
 }
 
-func (s *subscription) Pop(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
-	msgs, err := s.sub.Fetch(batch, opts...)
+func (s *subscription) Pop(ctx context.Context, batch int) ([]*nats.Msg, error) {
+	msgs, err := s.sub.Fetch(batch, nats.Context(ctx))
+	for ; errors.Is(err, context.DeadlineExceeded); msgs, err = s.sub.Fetch(batch, nats.Context(ctx)) {
+		select {
+		case <-ctx.Done():
+			// If the given context is done, then break.
+			break
+		default:
+			// If the given context is not done, then NATS's internal timeout
+			// was exceeded, so let's try again.
+		}
+	}
 	if err != nil {
-		s.queueInteractionsTotalCounter.WithLabelValues("pop", "error").Inc()
+		s.popsTotalCounter.WithLabelValues("error").Inc()
 		return nil, err
 	}
-	s.queueInteractionsTotalCounter.WithLabelValues("pop", "success").Inc()
-
+	s.popsTotalCounter.WithLabelValues("success").Inc()
 	return msgs, nil
 }

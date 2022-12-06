@@ -92,7 +92,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		default:
 		}
 
-		msgs, err := sub.Pop(d.batchSize, nats.Context(ctx))
+		msgs, err := sub.Pop(ctx, d.batchSize)
 		if err != nil {
 			level.Error(d.l).Log("msg", "failed to dequeue messages from queue", "err", err.Error())
 			continue

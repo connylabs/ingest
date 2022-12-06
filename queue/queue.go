@@ -91,5 +91,5 @@ func (qc *queue) PullSubscribe(subject string, durable string, opts ...nats.SubO
 		return nil, err
 	}
 
-	return newSubscription(sub, qc.queueOperationsTotalCounter), nil
+	return newSubscription(sub, qc.queueOperationsTotalCounter.MustCurryWith(prometheus.Labels{"operation": "pop"})), nil
 }

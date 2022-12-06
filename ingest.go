@@ -19,7 +19,7 @@ type Queue interface {
 
 // Subscription is able to pull a batch of messages from a stream for a pull consumer.
 type Subscription interface {
-	Pop(int, ...nats.PullOpt) ([]*nats.Msg, error)
+	Pop(context.Context, int) ([]*nats.Msg, error)
 	Close() error
 }
 
