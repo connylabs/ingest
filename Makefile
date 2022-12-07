@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint lint-go gen-mock vendor
+.PHONY: build test fmt lint lint-go gen-mock vendor clean
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
@@ -58,14 +58,14 @@ build-%:
 
 all-build: $(addprefix build-$(OS)-, $(ALL_ARCH))
 
-$(BINS): $(SRC) go.mod
+$(BINS): $(SRC) go.mod vendor
 	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))
 	@echo "building: $@"
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
-		CGO_ENABLED=1 \
+		CGO_ENABLED=0 \
 		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
 		    ./cmd/$(@F) \
@@ -74,14 +74,14 @@ $(BINS): $(SRC) go.mod
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-$(PLUGINS): $(SRC) go.mod
+$(PLUGINS): $(SRC) go.mod vendor
 	@mkdir -p $(PLUGIN_DIR)/$(word 3,$(subst /, ,$@))/$(word 4,$(subst /, ,$@))
 	@echo "building: $@"
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
-		CGO_ENABLED=1 \
+		CGO_ENABLED=0 \
 		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
 		    ./plugins/$(@F) \
@@ -153,16 +153,16 @@ test: $(PLUGINS)
 	E2E=$(E2E) go test ./...
 
 vendor:
-	go mod tidy
+	go mod download
 	go mod vendor
 
 $(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
-$(NATS_BINARY): | $(BIN_DIR)
+$(NATS_BINARY): | $(BIN_DIR) vendor
 	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats
 
-$(MINIO_CLIENT_BINARY): | $(BIN_DIR)
+$(MINIO_CLIENT_BINARY): | $(BIN_DIR) vendor
 	go build -mod=vendor -o $@ github.com/minio/mc
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
@@ -170,3 +170,7 @@ $(MOCKERY_BINARY): | $(BIN_DIR)
 
 $(EMBEDMD_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/campoy/embedmd
+
+clean:
+	rm -r vendor
+	rm -r bin

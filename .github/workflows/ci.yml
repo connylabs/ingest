@@ -13,19 +13,6 @@ on:
 
 jobs:
 
-  vendor:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.18
-    - name: Vendor
-      run: |
-        make vendor
-        git diff --exit-code
-
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -93,28 +80,18 @@ jobs:
       uses: docker/setup-qemu-action@v1
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.18
-    - name: Build ingest and plugins
-      run: make
     - name: Build container
       uses: docker/build-push-action@v2
       with:
         context: .
+        push: false
+        platforms: linux/arm64, linux/arm, linux/amd64
 
   smoke_test:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - uses: docker/setup-buildx-action@v1
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.18
-    - name: Build ingest and plugins
-      run: make
     - name: Build container
       uses: docker/build-push-action@v2
       with:
@@ -129,7 +106,6 @@ jobs:
   push:
     if: github.event_name != 'pull_request'
     needs:
-    - vendor
     - docs
     - lint
     - test
@@ -149,12 +125,6 @@ jobs:
         registry: ghcr.io
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.18
-    - name: Build ingest and plugins for all Linux Architectures
-      run: make all-build
     - name: Determine SHA
       id: sha
       run: echo "::set-output name=sha::$(git describe --always --tags --dirty)"
