@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint lint-go gen-mock vendor clean
+.PHONY: build test fmt lint lint-go gen-mock clean
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
@@ -58,15 +58,16 @@ build-%:
 
 all-build: $(addprefix build-$(OS)-, $(ALL_ARCH))
 
-$(BINS): $(SRC) go.mod vendor
+$(BINS): $(SRC) go.mod
 	@mkdir -p $(BIN_DIR)/$(word 2,$(subst /, ,$@))/$(word 3,$(subst /, ,$@))
 	@echo "building: $@"
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
+		GOMODCACHE=$$(pwd)/.gomodcache \
 		CGO_ENABLED=0 \
-		go build -mod=vendor -o $@ \
+		go build -o $@ \
 		    $(LD_FLAGS) \
 		    ./cmd/$(@F) \
 	$(BUILD_SUFIX)
@@ -74,15 +75,16 @@ $(BINS): $(SRC) go.mod vendor
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-$(PLUGINS): $(SRC) go.mod vendor
+$(PLUGINS): $(SRC) go.mod
 	@mkdir -p $(PLUGIN_DIR)/$(word 3,$(subst /, ,$@))/$(word 4,$(subst /, ,$@))
 	@echo "building: $@"
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
+		GOMODCACHE=$$(pwd)/.gomodcache \
 		CGO_ENABLED=0 \
-		go build -mod=vendor -o $@ \
+		go build -o $@ \
 		    $(LD_FLAGS) \
 		    ./plugins/$(@F) \
 	$(BUILD_SUFIX)
@@ -152,18 +154,14 @@ lint-go: $(GOLANGCI_LINT_BINARY)
 test: $(PLUGINS)
 	E2E=$(E2E) go test ./...
 
-vendor:
-	go mod download
-	go mod vendor
-
 $(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
-$(NATS_BINARY): | $(BIN_DIR) vendor
-	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats
+$(NATS_BINARY): | $(BIN_DIR)
+	go build -o $@ github.com/nats-io/natscli/nats
 
-$(MINIO_CLIENT_BINARY): | $(BIN_DIR) vendor
-	go build -mod=vendor -o $@ github.com/minio/mc
+$(MINIO_CLIENT_BINARY): | $(BIN_DIR)
+	go build -o $@ github.com/minio/mc
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/vektra/mockery/v2
@@ -172,5 +170,4 @@ $(EMBEDMD_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/campoy/embedmd
 
 clean:
-	rm -r vendor
 	rm -r bin
