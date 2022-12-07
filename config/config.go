@@ -160,7 +160,7 @@ func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string) (map
 	for i := range c.Destinations {
 		d, err := pm.NewDestination(pluginPaths[c.Destinations[i].Type], c.Destinations[i].Config)
 		if d == nil {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err) //nolint:govet
+			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
 		}
 
 		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}

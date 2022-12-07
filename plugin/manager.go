@@ -15,11 +15,11 @@ import (
 
 // PluginManager can start new plugins watch and kill all plugins.
 type PluginManager struct {
+	Interval time.Duration
+
 	sources     []withClient[Source]
 	destination []withClient[Destination]
-
-	Interval time.Duration
-	m        sync.Mutex
+	m           sync.Mutex
 }
 
 // NewDestination returns a new Destination interface from a plugin path and configuration.
@@ -66,7 +66,10 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 }
 
 // Stop will block until all rpc clients are closed.
+// After Stop was called the PluginManager should not be used anymore.
 func (pm *PluginManager) Stop() error {
+	pm.m.Lock()
+
 	g := &multierror.Group{}
 	for _, s := range pm.sources {
 		g.Go(s.c.Close)
@@ -77,7 +80,7 @@ func (pm *PluginManager) Stop() error {
 	return g.Wait().ErrorOrNil()
 }
 
-// Watch will return an error when a plugin can not be pinged anymore.
+// Watch will return an error when a plugin can not be pinged anymore or return when ctx is done.
 func (pm *PluginManager) Watch(ctx context.Context) error {
 	t := time.NewTicker(pm.Interval)
 	for {
