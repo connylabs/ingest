@@ -219,9 +219,7 @@ func Main() error {
 				func(error) {
 					cancel()
 					level.Info(logger).Log("msg", "stopping all plugins")
-					if err := pm.Stop(); err != nil {
-						level.Error(logger).Log("msg", "failed to stop plugins", "err", err.Error())
-					}
+					pm.Stop()
 				})
 		}
 	}

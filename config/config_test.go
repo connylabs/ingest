@@ -76,12 +76,7 @@ workflows:
 			require.NoError(t, err)
 
 			pm := &plugin.PluginManager{}
-			t.Cleanup(func() {
-				if err := pm.Stop(); err != nil {
-					// For some reason stopping the manager can fail in github actions.
-					t.Logf("failed to stop PluginManager: %s\n", err.Error())
-				}
-			})
+			t.Cleanup(pm.Stop)
 			_, _, err = c.ConfigurePlugins(pm, tc.paths)
 			assert.ErrorIs(t, err, tc.err, errors.Unwrap(err))
 		})

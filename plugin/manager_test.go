@@ -15,10 +15,7 @@ func TestPluginManagerWatch(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(func() {
 			cancel()
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
+			pm.Stop()
 		})
 
 		p, err := pm.NewSource(noopPath, nil)

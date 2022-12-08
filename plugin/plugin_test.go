@@ -21,13 +21,8 @@ func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
 		pm := &PluginManager{}
 		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(func() {
-			cancel()
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
+		t.Cleanup(cancel)
 
 		p, err := pm.NewSource(noopPath, nil)
 		require.NoError(t, err)
@@ -59,13 +54,8 @@ func TestNewPluginSource(t *testing.T) {
 	t.Run("Download and CleanUp", func(t *testing.T) {
 		pm := &PluginManager{}
 		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(func() {
-			cancel()
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
+		t.Cleanup(cancel)
 
 		p, err := pm.NewSource(noopPath, nil)
 		require.NoError(t, err)
@@ -90,12 +80,7 @@ func TestNewPluginSource(t *testing.T) {
 
 	t.Run("Configure", func(t *testing.T) {
 		pm := &PluginManager{}
-		t.Cleanup(func() {
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
 
 		p, err := pm.NewSource(noopPath, nil)
 		require.NoError(t, err)
@@ -109,12 +94,8 @@ func TestNewPluginSource(t *testing.T) {
 func TestPluginDestination(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
 		pm := &PluginManager{}
-		t.Cleanup(func() {
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
+
 		p, err := pm.NewDestination(noopPath, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
@@ -126,13 +107,9 @@ func TestPluginDestination(t *testing.T) {
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		pm := &PluginManager{}
-		t.Cleanup(func() {
-			cancel()
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
+		t.Cleanup(cancel)
+
 		p, err := pm.NewDestination(noopPath, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
@@ -151,13 +128,9 @@ func TestPluginDestination(t *testing.T) {
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		pm := &PluginManager{}
-		t.Cleanup(func() {
-			cancel()
-			if err := pm.Stop(); err != nil {
-				// For some reason stopping the manager can fail in github actions.
-				t.Logf("failed to stop PluginManager: %s\n", err.Error())
-			}
-		})
+		t.Cleanup(pm.Stop)
+		t.Cleanup(cancel)
+
 		p, err := pm.NewDestination(noopPath, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)

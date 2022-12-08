@@ -67,17 +67,13 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 
 // Stop will block until all rpc clients are closed.
 // After Stop was called the PluginManager should not be used anymore.
-func (pm *PluginManager) Stop() error {
+func (pm *PluginManager) Stop() {
 	pm.m.Lock()
+	defer pm.m.Unlock()
 
-	g := &multierror.Group{}
-	for _, s := range pm.sources {
-		g.Go(s.c.Close)
-	}
-	for _, d := range pm.destination {
-		g.Go(d.c.Close)
-	}
-	return g.Wait().ErrorOrNil()
+	hplugin.CleanupClients()
+	pm.destination = nil
+	pm.sources = nil
 }
 
 // Watch will return an error when a plugin can not be pinged anymore or return when ctx is done.
@@ -130,6 +126,8 @@ func client(path string) (hplugin.ClientProtocol, error) {
 		Plugins:         pluginMap,
 		Cmd:             exec.Command(path),
 		Logger:          logger.With("path", path),
+		Managed:         true,
+		AutoMTLS:        true,
 	})
 
 	rpcClient, err := client.Client()
