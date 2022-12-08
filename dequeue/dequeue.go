@@ -100,7 +100,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 		}
 		level.Info(d.l).Log("msg", fmt.Sprintf("dequeued %d messages from queue", len(msgs)))
 
-		g, ctx := errgroup.WithContext(ctx)
+		g, egCtx := errgroup.WithContext(ctx)
 		g.SetLimit(d.concurrency)
 		uris := make([]string, d.batchSize)
 		for i, raw := range msgs {
@@ -111,7 +111,7 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 					level.Error(d.l).Log("msg", "failed to marshal message", "err", err.Error())
 					return err
 				}
-				u, err := d.process(ctx, *item)
+				u, err := d.process(egCtx, *item)
 				if err != nil {
 					level.Error(d.l).Log("msg", "failed to process message", "id", item.ID, "name", item.Name, "err", err.Error())
 				} else {
