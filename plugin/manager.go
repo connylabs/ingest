@@ -27,20 +27,24 @@ func (pm *PluginManager) NewDestination(path string, config map[string]any) (Des
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	rc, err := client(path)
+	c := client(path)
+	cp, err := c.Client()
 	if err != nil {
-		return nil, err
+		c.Kill()
+		return nil, fmt.Errorf("failed to create rpc client interface: %w", err)
 	}
-	d, err := newDestination(rc)
+	d, err := newDestination(cp)
 	if err != nil {
+		c.Kill()
 		return nil, err
 	}
 
 	if err := d.Configure(config); err != nil {
+		c.Kill()
 		return nil, fmt.Errorf("failed to configure destination: %w", err)
 	}
 
-	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: rc, path: path, config: config})
+	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config})
 
 	return d, nil
 }
@@ -50,18 +54,22 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	rc, err := client(path)
+	c := client(path)
+	cp, err := c.Client()
 	if err != nil {
-		return nil, err
+		c.Kill()
+		return nil, fmt.Errorf("failed to create rpc client interface: %w", err)
 	}
-	s, err := newSource(rc)
+	s, err := newSource(cp)
 	if err != nil {
+		c.Kill()
 		return nil, err
 	}
 	if err := s.Configure(config); err != nil {
+		c.Kill()
 		return nil, fmt.Errorf("failed to configure source: %w", err)
 	}
-	pm.sources = append(pm.sources, withClient[Source]{t: s, c: rc, path: path, config: config})
+	pm.sources = append(pm.sources, withClient[Source]{t: s, c: c, path: path, config: config})
 	return s, nil
 }
 
@@ -71,7 +79,23 @@ func (pm *PluginManager) Stop() {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	hplugin.CleanupClients()
+	g := &multierror.Group{}
+	f := func(c *hplugin.Client) func() error {
+		return func() error {
+			c.Kill()
+			return nil
+		}
+	}
+	for _, c := range pm.sources {
+		g.Go(f(c.c))
+	}
+	for _, c := range pm.destination {
+		g.Go(f(c.c))
+	}
+	if err := g.Wait().ErrorOrNil(); err != nil {
+		// We can panic here because none of the go routines in the group return errors.
+		panic(err)
+	}
 	pm.destination = nil
 	pm.sources = nil
 }
@@ -85,15 +109,21 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 			return nil
 		case <-t.C:
 			for _, s := range pm.sources {
-				err := s.c.Ping()
+				cp, err := s.c.Client()
 				if err != nil {
+					return fmt.Errorf("source client not initialized: %w", err)
+				}
+				if err := cp.Ping(); err != nil {
 					return fmt.Errorf("failed to ping source: %w", err)
 				}
 
 			}
 			for _, d := range pm.destination {
-				err := d.c.Ping()
+				cp, err := d.c.Client()
 				if err != nil {
+					return fmt.Errorf("destination client not initialized: %w", err)
+				}
+				if err := cp.Ping(); err != nil {
 					return fmt.Errorf("failed to ping destination: %w", err)
 				}
 
@@ -102,7 +132,7 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 	}
 }
 
-func client(path string) (hplugin.ClientProtocol, error) {
+func client(path string) *hplugin.Client {
 	handshakeConfig := hplugin.HandshakeConfig{
 		ProtocolVersion:  PluginMagicProtocalVersion,
 		MagicCookieKey:   PluginMagicCookieKey,
@@ -121,40 +151,27 @@ func client(path string) (hplugin.ClientProtocol, error) {
 		"source":      &pluginSource{},
 	}
 
-	client := hplugin.NewClient(&hplugin.ClientConfig{
+	return hplugin.NewClient(&hplugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
 		Cmd:             exec.Command(path),
 		Logger:          logger.With("path", path),
-		Managed:         true,
 		AutoMTLS:        true,
+		Managed:         true,
 	})
-
-	rpcClient, err := client.Client()
-	if err != nil {
-		client.Kill()
-		return nil, fmt.Errorf("failed to create rpc client interface: %w", err)
-	}
-	return rpcClient, nil
 }
 
 type withClient[T any] struct {
 	t      T
 	path   string
-	c      hplugin.ClientProtocol
+	c      *hplugin.Client
 	config map[string]any
 }
 
 func newDestination(cp hplugin.ClientProtocol) (Destination, error) {
 	raw, err := cp.Dispense("destination")
 	if err != nil {
-		err = fmt.Errorf("failed to dispense destination: %w", err)
-		if cErr := cp.Close(); cErr != nil {
-			err = multierror.Append(err, fmt.Errorf("failed to close client: %w", cErr))
-		}
-
-		return nil, err
-
+		return nil, fmt.Errorf("failed to dispense destination: %w", err)
 	}
 	return raw.(Destination), nil
 }
@@ -162,13 +179,7 @@ func newDestination(cp hplugin.ClientProtocol) (Destination, error) {
 func newSource(cp hplugin.ClientProtocol) (Source, error) {
 	raw, err := cp.Dispense("source")
 	if err != nil {
-		err = fmt.Errorf("failed to dispense source: %w", err)
-		if cErr := cp.Close(); cErr != nil {
-			err = multierror.Append(err, fmt.Errorf("failed to close client: %w", cErr))
-		}
-
-		return nil, err
-
+		return nil, fmt.Errorf("failed to dispense source: %w", err)
 	}
 	return raw.(Source), nil
 }

@@ -40,10 +40,7 @@ func TestPluginManagerWatch(t *testing.T) {
 		_, err := pm.NewSource(noopPath, nil)
 		require.NoError(t, err)
 
-		if err := pm.sources[0].c.Close(); err != nil {
-			// For some reason stopping the manager can fail in github actions.
-			t.Logf("failed to stop PluginManager: %s\n", err.Error())
-		}
+		pm.sources[0].c.Kill()
 		assert.Error(t, pm.Watch(ctx), "the watcher is expected to return an error")
 	})
 }
