@@ -53,6 +53,8 @@ var availableLogLevels = strings.Join([]string{
 const (
 	dequeueMode = "dequeue"
 	enqueueMode = "enqueue"
+
+	watchPluginInterval = 5 * time.Second
 )
 
 var availableModes = strings.Join([]string{
@@ -153,7 +155,8 @@ func Main() error {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-	sources, destinations, err := c.ConfigurePlugins(ctx, *appFlags.pluginDirectories)
+	pm := &plugin.PluginManager{Interval: watchPluginInterval}
+	sources, destinations, err := c.ConfigurePlugins(pm, *appFlags.pluginDirectories)
 	if err != nil {
 		return err
 	}
@@ -201,6 +204,24 @@ func Main() error {
 		}, func(error) {
 			l.Close()
 		})
+
+		// Stop the application if a plugin has crashed.
+		{
+			ctx, cancel := context.WithCancel(ctx)
+			g.Add(func() error {
+				level.Info(logger).Log("msg", "start to watch plugins", "interval", watchPluginInterval.String())
+
+				if err := pm.Watch(ctx); err != nil {
+					return fmt.Errorf("plugin crash detected: %w", err)
+				}
+				return nil
+			},
+				func(error) {
+					cancel()
+					level.Info(logger).Log("msg", "stopping all plugins")
+					pm.Stop()
+				})
+		}
 	}
 
 	// Exit gracefully on SIGINT and SIGTERM.
@@ -227,12 +248,8 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			}
 			g.Add(
 				cmd.NewEnqueuerRunner(ctx, qc, time.Duration(*w.Interval), logger),
-				func(err error) {
-					// Do not cancel the enqueuer if other enqueuers exited cleanly.
-					// Instead, let the enqueuers finish.
-					if err != nil {
-						cancel()
-					}
+				func(error) {
+					cancel()
 				},
 			)
 		case dequeueMode:

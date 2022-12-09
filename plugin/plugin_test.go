@@ -19,22 +19,19 @@ var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runt
 
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
+		pm := &PluginManager{}
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		_, p, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
-
-		_, err = p.Next(ctx)
-		assert.ErrorIs(t, err, ErrNotConfigured)
-
-		assert.ErrorIs(t, p.Reset(ctx), ErrNotConfigured)
+		p, err := pm.NewSource(noopPath, nil)
+		require.NoError(t, err)
 
 		err = p.Configure(nil)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		n, err := p.Next(ctx)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.Equal(t, defaultCodec, *n)
 
 		n, err = p.Next(ctx)
@@ -43,88 +40,84 @@ func TestNewPluginSource(t *testing.T) {
 		assert.Nil(t, n)
 
 		err = p.Reset(ctx)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 
 		n, err = p.Next(ctx)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.Equal(t, defaultCodec, *n)
 
-		require.Nil(t, p.Configure(map[string]any{"resetErr": true}))
+		require.NoError(t, p.Configure(map[string]any{"resetErr": true}))
 
 		assert.Error(t, p.Reset(ctx))
 	})
 
 	t.Run("Download and CleanUp", func(t *testing.T) {
+		pm := &PluginManager{}
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		_, p, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
-
-		_, err = p.Download(ctx, defaultCodec)
-		assert.ErrorIs(t, err, ErrNotConfigured)
-
-		assert.ErrorIs(t, p.CleanUp(ctx, defaultCodec), ErrNotConfigured)
+		p, err := pm.NewSource(noopPath, nil)
+		require.NoError(t, err)
 
 		err = p.Configure(nil)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		n, err := p.Next(ctx)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		obj, err := p.Download(ctx, *n)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		b, err := io.ReadAll(obj.Reader)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, defaultObjContent, string(b))
 
-		require.Nil(t, p.CleanUp(ctx, *n))
+		require.NoError(t, p.CleanUp(ctx, *n))
 
 		require.Error(t, p.CleanUp(ctx, ingest.NewCodec("unknown", "nobody")))
 	})
 
 	t.Run("Configure", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
+		pm := &PluginManager{}
+		t.Cleanup(pm.Stop)
 
-		_, p, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
+		p, err := pm.NewSource(noopPath, nil)
+		require.NoError(t, err)
 
 		assert.Error(t, p.Configure(map[string]any{"error": "an error"}))
 		assert.Equal(t, "an error", p.Configure(map[string]any{"error": "an error"}).Error())
-		assert.Nil(t, p.Configure(nil))
+		assert.NoError(t, p.Configure(nil))
 	})
 }
 
-func TestPluginStore(t *testing.T) {
+func TestPluginDestination(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
+		pm := &PluginManager{}
+		t.Cleanup(pm.Stop)
 
-		p, _, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
+		p, err := pm.NewDestination(noopPath, nil)
+		require.NoError(t, err)
 		require.NotNil(t, p)
 
-		assert.Nil(t, p.Configure(nil))
+		assert.NoError(t, p.Configure(nil))
 		assert.Error(t, p.Configure(map[string]any{"error": "config error"}))
 	})
 
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
+		pm := &PluginManager{}
+		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, _, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
+		p, err := pm.NewDestination(noopPath, nil)
+		require.NoError(t, err)
 		require.NotNil(t, p)
 
-		_, err = p.Stat(ctx, defaultCodec)
-		assert.ErrorIs(t, err, ErrNotConfigured)
-
-		require.Nil(t, p.Configure(map[string]any{}))
+		require.NoError(t, p.Configure(map[string]any{}))
 
 		u, err := p.Stat(ctx, defaultCodec)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, defaultObjURL, u.URI)
 
 		u, err = p.Stat(ctx, ingest.NewCodec("fake id", "unknown"))
@@ -134,25 +127,21 @@ func TestPluginStore(t *testing.T) {
 
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
+		pm := &PluginManager{}
+		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, _, err := NewPlugin(ctx, noopPath)
-		require.Nil(t, err)
+		p, err := pm.NewDestination(noopPath, nil)
+		require.NoError(t, err)
 		require.NotNil(t, p)
 
-		_, err = p.Store(ctx, defaultCodec, ingest.Object{
-			Reader: strings.NewReader(defaultObjContent),
-		})
-
-		assert.ErrorIs(t, err, ErrNotConfigured)
-
-		require.Nil(t, p.Configure(nil))
+		require.NoError(t, p.Configure(nil))
 
 		u, err := p.Store(ctx, defaultCodec, ingest.Object{
 			Reader: strings.NewReader(defaultObjContent),
 		})
 
-		require.Nil(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, defaultObjURL, u.String())
 
 		u, err = p.Store(ctx, defaultCodec, ingest.Object{

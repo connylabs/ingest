@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/connylabs/ingest/config"
+	"github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/queue"
 )
 
@@ -81,22 +82,22 @@ func setUpMinios(t *testing.T, e e2e.Environment, files map[string]map[string][]
 		rs = append(rs, newMinioRunnable(e, m))
 		runnables[m] = rs[len(rs)-1]
 	}
-	requ.Nil(e2e.StartAndWaitReady(rs...))
+	requ.NoError(e2e.StartAndWaitReady(rs...))
 	for m := range files {
 		clients[m], err = minio.New(runnables[m].Endpoint("minio"), &minio.Options{
 			Secure: false,
 			Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		})
-		requ.Nil(err)
+		requ.NoError(err)
 	}
 	for m, bs := range files {
 		for b, fs := range bs {
 			err = clients[m].MakeBucket(context.Background(), b, minio.MakeBucketOptions{})
-			require.Nil(t, err)
+			require.NoError(t, err)
 			for _, f := range fs {
 				buf := bytes.NewReader(f.data)
 				_, err = clients[m].PutObject(context.Background(), b, path.Join(f.prefix, f.name), buf, buf.Size(), minio.PutObjectOptions{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 
 			}
 		}
@@ -104,7 +105,7 @@ func setUpMinios(t *testing.T, e e2e.Environment, files map[string]map[string][]
 	t.Cleanup(
 		func() {
 			for _, r := range rs {
-				requ.Nil(r.Stop())
+				requ.NoError(r.Stop())
 			}
 		})
 
@@ -114,15 +115,15 @@ func setUpMinios(t *testing.T, e e2e.Environment, files map[string]map[string][]
 func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[string]e2e.Runnable, map[string]*minio.Client) {
 	requ := require.New(t)
 	e, err := e2e.NewDockerEnvironment("main_e2e")
-	requ.Nil(err)
+	requ.NoError(err)
 
 	natsInstance := newNATSRunnable(e, "nats")
-	requ.Nil(e2e.StartAndWaitReady(natsInstance))
+	requ.NoError(e2e.StartAndWaitReady(natsInstance))
 	rs, mcs := setUpMinios(t, e, files)
 
 	t.Cleanup(
 		func() {
-			requ.Nil(natsInstance.Stop())
+			requ.NoError(natsInstance.Stop())
 		})
 	return natsInstance.Endpoint("nats"), rs, mcs
 }
@@ -134,7 +135,7 @@ func TestRunGroup(t *testing.T) {
 
 	file100MB := make([]byte, 100000000)
 	_, err := rand.Read(file100MB)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	files := map[string]map[string][]s3File{
 		"minio_1": {
@@ -234,7 +235,7 @@ workflows:
   interval: 300s
   webhook: http://localhost:8080 
 `)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	b := bytes.NewBuffer(nil)
 	err = tmpl.Execute(b, struct {
 		Foo2Endpoint    string
@@ -247,24 +248,26 @@ workflows:
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretAccessKey,
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	rawConfig, err := io.ReadAll(b)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	c, err := config.New(rawConfig)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sources, destintations, err := c.ConfigurePlugins(ctx, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)})
-	require.Nil(t, err)
+	pm := &plugin.PluginManager{}
+	t.Cleanup(pm.Stop)
+	sources, destintations, err := c.ConfigurePlugins(pm, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)})
+	require.NoError(t, err)
 
 	reg := prometheus.NewRegistry()
 
 	q, err := queue.New(natsEndpoint, stream, 1, []string{fmt.Sprintf("%s.*", subject)}, 1000, reg)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	l := log.NewJSONLogger(os.Stdout)
 	l = log.With(l, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
@@ -273,7 +276,7 @@ workflows:
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		defer cancel()
 		if err := q.Close(ctx); err != nil {
-			assert.Nil(t, err)
+			assert.NoError(t, err)
 		}
 	}()
 
@@ -288,11 +291,11 @@ workflows:
 			mode:     toPtr(enqueueMode),
 			subject:  toPtr(subject),
 		}
-		require.Nil(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
+		require.NoError(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
 
 		wg.Add(1)
 		go func() {
-			require.Nil(t, g.Run())
+			require.NoError(t, g.Run())
 			wg.Done()
 		}()
 	}
@@ -305,11 +308,11 @@ workflows:
 			consumer:          toPtr(consumer),
 			pluginDirectories: toPtr([]string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)}),
 		}
-		require.Nil(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
+		require.NoError(t, runGroup(tctx, &g, q, appFlags, sources, destintations, c.Workflows, l, reg))
 
 		wg.Add(1)
 		go func() {
-			require.Nil(t, g.Run())
+			require.NoError(t, g.Run())
 			wg.Done()
 		}()
 

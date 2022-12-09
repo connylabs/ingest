@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,7 +90,7 @@ type Config struct {
 }
 
 // ConfigurePlugins configures the plugins found in path.
-func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
+func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
 	// Collect all of the named pluginPaths.
 	pluginPaths := make(map[string]string)
 	sources := make(map[string]plugin.Source)
@@ -140,7 +139,7 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 			c.Workflows[i].Concurrency = c.Workflows[i].BatchSize
 		}
 	}
-	// Instantiate the plugins.
+	// Find plugin paths
 	for pn := range pluginNames {
 		pp, err := firstPath(paths, pn)
 		if err != nil {
@@ -150,39 +149,24 @@ func (c *Config) ConfigurePlugins(ctx context.Context, paths []string) (map[stri
 	}
 	// Instantiate the sources.
 	for i := range c.Sources {
-		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
-		ctx, cancel := context.WithCancel(ctx) //nolint:govet
-
-		_, s, err := plugin.NewPlugin(ctx, pluginPaths[c.Sources[i].Type])
+		s, err := pm.NewSource(pluginPaths[c.Sources[i].Type], c.Sources[i].Config)
 		if s == nil {
-			cancel()
 			return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", c.Sources[i].Name, err)
 		}
 
-		if err := s.Configure(c.Sources[i].Config); err != nil {
-			cancel()
-			return nil, nil, fmt.Errorf("failed to configure source %q: %w", c.Sources[i].Name, err)
-		}
 		sources[c.Sources[i].Name] = &SourceTyper{s, c.Sources[i].Type}
 	}
 	// Instantiate the destinations.
 	for i := range c.Destinations {
-		// Of course we could use the parent context and only kill the failed rpc servers when exiting the main process to avoid the context cancel warnning.
-		ctx, cancel := context.WithCancel(ctx) //nolint:govet
-		d, _, err := plugin.NewPlugin(ctx, pluginPaths[c.Destinations[i].Type])
+		d, err := pm.NewDestination(pluginPaths[c.Destinations[i].Type], c.Destinations[i].Config)
 		if d == nil {
-			cancel()
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err) //nolint:govet
+			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
 		}
 
-		if err := d.Configure(c.Destinations[i].Config); err != nil {
-			cancel()
-			return nil, nil, fmt.Errorf("failed to configure destination %q: %w", c.Destinations[i].Name, err)
-		}
 		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
 
 	}
-	return sources, destinations, nil //nolint:govet
+	return sources, destinations, nil
 }
 
 func firstPath(paths []string, filename string) (string, error) {
