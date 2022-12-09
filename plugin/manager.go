@@ -116,7 +116,6 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 				if err := cp.Ping(); err != nil {
 					return fmt.Errorf("failed to ping source: %w", err)
 				}
-
 			}
 			for _, d := range pm.destination {
 				cp, err := d.c.Client()
@@ -126,7 +125,6 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 				if err := cp.Ping(); err != nil {
 					return fmt.Errorf("failed to ping destination: %w", err)
 				}
-
 			}
 		}
 	}

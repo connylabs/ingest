@@ -248,7 +248,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			}
 			g.Add(
 				cmd.NewEnqueuerRunner(ctx, qc, time.Duration(*w.Interval), logger),
-				func(err error) {
+				func(error) {
 					cancel()
 				},
 			)
