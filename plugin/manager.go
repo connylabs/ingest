@@ -74,7 +74,7 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 }
 
 // Stop will block until all rpc clients are closed.
-// After Stop was called the PluginManager should not be used anymore.
+// After Stop was called all currently managed plugins cannot be used anymore.
 func (pm *PluginManager) Stop() {
 	pm.m.Lock()
 	defer pm.m.Unlock()
