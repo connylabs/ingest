@@ -268,7 +268,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			}
 			s := storage.NewMultiStorage(ss...)
 			if len(ss) > 1 {
-				s = storage.NewInstrumentedStorage(s, prometheus.WrapRegistererWith(prometheus.Labels{"destination": "multi"}, reg))
+				s = storage.NewInstrumentedStorage(s, prometheus.WrapRegistererWith(prometheus.Labels{"destination": "multi", "plugin": "multi"}, reg))
 			}
 			d := dequeue.New(
 				w.Webhook, sources[w.Source],
