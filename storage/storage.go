@@ -148,5 +148,8 @@ func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj inges
 // Elements are stored across all storages.
 // Whenever multiple values are expected, the first storage's result is always given.
 func NewMultiStorage(s ...Storage) Storage {
+	if len(s) == 1 {
+		return s[0]
+	}
 	return multiStorage(s)
 }
