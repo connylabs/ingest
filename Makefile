@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint lint-go gen-mock vendor
+.PHONY: build test fmt lint lint-go gen-mock clean
 
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
@@ -65,8 +65,9 @@ $(BINS): $(SRC) go.mod
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
-		CGO_ENABLED=1 \
-		go build -mod=vendor -o $@ \
+		GOMODCACHE=$$(pwd)/.gomodcache \
+		CGO_ENABLED=0 \
+		go build -o $@ \
 		    $(LD_FLAGS) \
 		    ./cmd/$(@F) \
 	$(BUILD_SUFIX)
@@ -81,8 +82,9 @@ $(PLUGINS): $(SRC) go.mod
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
 	        GOCACHE=$$(pwd)/.cache \
-		CGO_ENABLED=1 \
-		go build -mod=vendor -o $@ \
+		GOMODCACHE=$$(pwd)/.gomodcache \
+		CGO_ENABLED=0 \
+		go build -o $@ \
 		    $(LD_FLAGS) \
 		    ./plugins/$(@F) \
 	$(BUILD_SUFIX)
@@ -152,21 +154,20 @@ lint-go: $(GOLANGCI_LINT_BINARY)
 test: $(PLUGINS)
 	E2E=$(E2E) go test ./...
 
-vendor:
-	go mod tidy
-	go mod vendor
-
 $(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
 $(NATS_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats
+	go build -o $@ github.com/nats-io/natscli/nats
 
 $(MINIO_CLIENT_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ github.com/minio/mc
+	go build -o $@ github.com/minio/mc
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/vektra/mockery/v2
 
 $(EMBEDMD_BINARY): | $(BIN_DIR)
 	go build -o $@ github.com/campoy/embedmd
+
+clean:
+	rm -r bin
