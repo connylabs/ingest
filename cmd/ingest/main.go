@@ -254,7 +254,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			)
 		case dequeueMode:
 			logger := log.With(logger, "mode", dequeueMode)
-			var ss []storage.Storage
+			ss := make([]storage.Storage, 0, len(w.Destinations))
 			for _, d := range w.Destinations {
 				t := "unknown"
 				if dt, ok := destinations[d].(config.DestinationTyper); ok {
