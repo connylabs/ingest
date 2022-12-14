@@ -117,12 +117,20 @@ func (m multiStorage) Store(ctx context.Context, element ingest.Codec, obj inges
 		return nil, err
 	}
 	for i := range m {
-		obj := ingest.Object{
-			Len:      obj.Len,
-			MimeType: obj.MimeType,
-			Reader:   bytes.NewReader(buf),
-		}
 		go func(i int) {
+			// Store may be called just because the Stat on one single underlying
+			// storage returned false. Example, an object exists in storage A but
+			// not in storage B. We want to avoid uploading to A just because the
+			// object does not exist in B.
+			if _, err := m[i].Stat(ctx, element); !os.IsNotExist(err) {
+				ch <- err
+				return
+			}
+			obj := ingest.Object{
+				Len:      obj.Len,
+				MimeType: obj.MimeType,
+				Reader:   bytes.NewReader(buf),
+			}
 			u, err := m[i].Store(ctx, element, obj)
 			if i == 0 {
 				u0 = u
