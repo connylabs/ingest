@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	homedir "github.com/mitchellh/go-homedir"
+	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -99,13 +98,14 @@ func printStackTrace(e error) {
 // Execute executes the cobra CLI workflow
 func Execute() {
 	if err := NewRootCmd().Execute(); err != nil {
-		//printStackTrace(err)
+		// printStackTrace(err)
 		os.Exit(1)
 	}
 }
 
 func initConfig() {
 	viper.SetEnvPrefix("mockery")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
 
 	if cfgFile != "" {
@@ -246,7 +246,7 @@ func (r *RootApp) Run() error {
 
 	var boilerplate string
 	if r.Config.BoilerplateFile != "" {
-		data, err := ioutil.ReadFile(r.Config.BoilerplateFile)
+		data, err := os.ReadFile(r.Config.BoilerplateFile)
 		if err != nil {
 			log.Fatal().Msgf("Failed to read boilerplate file %s: %v", r.Config.BoilerplateFile, err)
 		}
@@ -297,7 +297,7 @@ func getLogger(levelStr string) (zerolog.Logger, error) {
 		Out:        out,
 		TimeFormat: time.RFC822,
 	}
-	if !terminal.IsTerminal(int(out.Fd())) {
+	if !terminal.IsTerminal(int(out.Fd())) || os.Getenv("TERM") == "dumb" {
 		writer.NoColor = true
 	}
 	log := zerolog.New(writer).

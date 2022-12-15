@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -37,7 +37,7 @@ type Parser struct {
 
 func NewParser(buildTags []string) *Parser {
 	var conf packages.Config
-	conf.Mode = packages.LoadSyntax | packages.NeedDeps
+	conf.Mode = packages.LoadSyntax
 	if len(buildTags) > 0 {
 		conf.BuildFlags = []string{"-tags", strings.Join(buildTags, ",")}
 	}
@@ -73,7 +73,7 @@ func (p *Parser) Parse(ctx context.Context, path string) error {
 
 	dir := filepath.Dir(path)
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
