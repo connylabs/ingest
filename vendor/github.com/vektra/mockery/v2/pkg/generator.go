@@ -16,12 +16,15 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog"
 	"github.com/vektra/mockery/v2/pkg/config"
 	"github.com/vektra/mockery/v2/pkg/logging"
 	"golang.org/x/tools/imports"
 )
+
+const mockConstructorParamTypeNamePrefix = "mockConstructorTestingT"
 
 var invalidIdentifierChar = regexp.MustCompile("[^[:digit:][:alpha:]_]")
 
@@ -61,6 +64,7 @@ func NewGenerator(ctx context.Context, c config.Config, iface *Interface, pkg st
 	}
 
 	g.addPackageImportWithName(ctx, "github.com/stretchr/testify/mock", "mock")
+
 	return g
 }
 
@@ -68,6 +72,20 @@ func (g *Generator) populateImports(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
 	log.Debug().Msgf("populating imports")
+
+	// imports from generic type constraints
+	if tParams := g.iface.NamedType.TypeParams(); tParams != nil && tParams.Len() > 0 {
+		for i := 0; i < tParams.Len(); i++ {
+			g.renderType(ctx, tParams.At(i).Constraint())
+		}
+	}
+
+	// imports from type arguments
+	if tArgs := g.iface.NamedType.TypeArgs(); tArgs != nil && tArgs.Len() > 0 {
+		for i := 0; i < tArgs.Len(); i++ {
+			g.renderType(ctx, tArgs.At(i))
+		}
+	}
 
 	for _, method := range g.iface.Methods() {
 		ftype := method.Signature
@@ -84,6 +102,18 @@ func (g *Generator) addImportsFromTuple(ctx context.Context, list *types.Tuple) 
 		// will appear in the interface file are known
 		g.renderType(ctx, list.At(i).Type())
 	}
+}
+
+// getPackageScopedType returns the appropriate string representation for the
+// object TypeName. The string may either be the unqualified name (in the case
+// the mock will live in the same package as the interface being mocked, e.g.
+// `Foo`) or the package pathname (in the case the type lives in a package
+// external to the mock, e.g. `packagename.Foo`).
+func (g *Generator) getPackageScopedType(ctx context.Context, o *types.TypeName) string {
+	if o.Pkg() == nil || o.Pkg().Name() == "main" || (!g.KeepTree && g.InPackage && o.Pkg() == g.iface.Pkg) {
+		return o.Name()
+	}
+	return g.addPackageImport(ctx, o.Pkg()) + "." + o.Name()
 }
 
 func (g *Generator) addPackageImport(ctx context.Context, pkg *types.Package) string {
@@ -103,7 +133,8 @@ func (g *Generator) addPackageImportWithName(ctx context.Context, path, name str
 }
 
 func (g *Generator) getNonConflictingName(path, name string) string {
-	if !g.importNameExists(name) {
+	if !g.importNameExists(name) && (!g.InPackage || g.iface.Pkg.Name() != name) {
+		// do not allow imports with the same name as the package when inPackage
 		return name
 	}
 
@@ -120,7 +151,8 @@ func (g *Generator) getNonConflictingName(path, name string) string {
 	var prospectiveName string
 	for i := 1; i <= numDirectories; i++ {
 		prospectiveName = strings.Join(cleanedDirectories[numDirectories-i:], "")
-		if !g.importNameExists(prospectiveName) {
+		if !g.importNameExists(prospectiveName) && (!g.InPackage || g.iface.Pkg.Name() != prospectiveName) {
+			// do not allow imports with the same name as the package when inPackage
 			return prospectiveName
 		}
 	}
@@ -156,8 +188,9 @@ func calculateImport(ctx context.Context, set []string, path string) string {
 	return path
 }
 
-// TODO(@IvanMalison): Is there not a better way to get the actual
-// import path of a package?
+// getLocalizedPath, given a path to a file or an importable URL,
+// returns the proper string needed to import the package. See tests
+// for specific examples of what this should return.
 func (g *Generator) getLocalizedPath(ctx context.Context, path string) string {
 	log := zerolog.Ctx(ctx).With().Str(logging.LogKeyPath, path).Logger()
 	ctx = log.WithContext(ctx)
@@ -193,15 +226,22 @@ func (g *Generator) getLocalizedPath(ctx context.Context, path string) string {
 	return toReturn
 }
 
-func upperFirstOnly(s string) string {
-	first := true
-	return strings.Map(func(r rune) rune {
-		if first {
-			first = false
-			return unicode.ToUpper(r)
-		}
-		return r
-	}, s)
+func (g *Generator) maybeMakeNameExported(name string, export bool) string {
+	if export && !ast.IsExported(name) {
+		return g.makeNameExported(name)
+	}
+
+	return name
+}
+
+func (g *Generator) makeNameExported(name string) string {
+	r, n := utf8.DecodeRuneInString(name)
+
+	if unicode.IsUpper(r) {
+		return name
+	}
+
+	return string(unicode.ToUpper(r)) + name[n:]
 }
 
 func (g *Generator) mockName() string {
@@ -214,13 +254,48 @@ func (g *Generator) mockName() string {
 			return "Mock" + g.iface.Name
 		}
 
-		return "mock" + upperFirstOnly(g.iface.Name)
-	}
-	if g.Exported || ast.IsExported(g.iface.Name) {
-		return upperFirstOnly(g.iface.Name)
+		return "mock" + g.makeNameExported(g.iface.Name)
 	}
 
-	return g.iface.Name
+	return g.maybeMakeNameExported(g.iface.Name, g.Exported)
+}
+
+// getTypeConstraintString returns type constraint string for a given interface.
+//  For instance, a method using this constraint:
+//
+//    func Foo[T Stringer](s []T) (ret []string) {
+//
+//    }
+//
+// The constraint returned will be "[T Stringer]"
+//
+// https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md#type-parameters
+func (g *Generator) getTypeConstraintString(ctx context.Context) string {
+	tp := g.iface.NamedType.TypeParams()
+	if tp == nil || tp.Len() == 0 {
+		return ""
+	}
+	qualifiedParams := make([]string, 0, tp.Len())
+	for i := 0; i < tp.Len(); i++ {
+		param := tp.At(i)
+		qualifiedParams = append(qualifiedParams, fmt.Sprintf("%s %s", param.String(), g.renderType(ctx, param.Constraint())))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(qualifiedParams, ", "))
+}
+
+// getInstantiatedTypeString returns the "instantiated" type names for a given
+// constraint list. For instance, if your interface has the constraints
+// `[S Stringer, I int, C Comparable]`, this method would return: `[S, I, C]`
+func (g *Generator) getInstantiatedTypeString() string {
+	tp := g.iface.NamedType.TypeParams()
+	if tp == nil || tp.Len() == 0 {
+		return ""
+	}
+	params := make([]string, 0, tp.Len())
+	for i := 0; i < tp.Len(); i++ {
+		params = append(params, tp.At(i).String())
+	}
+	return fmt.Sprintf("[%s]", strings.Join(params, ", "))
 }
 
 func (g *Generator) expecterName() string {
@@ -327,12 +402,25 @@ type namer interface {
 func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
 	switch t := typ.(type) {
 	case *types.Named:
-		o := t.Obj()
-		if o.Pkg() == nil || o.Pkg().Name() == "main" || (!g.KeepTree && g.InPackage && o.Pkg() == g.iface.Pkg) {
-			return o.Name()
+		name := g.getPackageScopedType(ctx, t.Obj())
+		if t.TypeArgs() == nil || t.TypeArgs().Len() == 0 {
+			return name
 		}
-		return g.addPackageImport(ctx, o.Pkg()) + "." + o.Name()
+		args := make([]string, 0, t.TypeArgs().Len())
+		for i := 0; i < t.TypeArgs().Len(); i++ {
+			arg := t.TypeArgs().At(i)
+			args = append(args, g.renderType(ctx, arg))
+		}
+		return fmt.Sprintf("%s[%s]", name, strings.Join(args, ","))
+	case *types.TypeParam:
+		if t.Constraint() != nil {
+			return t.Obj().Name()
+		}
+		return g.getPackageScopedType(ctx, t.Obj())
 	case *types.Basic:
+		if t.Kind() == types.UnsafePointer {
+			return "unsafe.Pointer"
+		}
 		return t.Name()
 	case *types.Pointer:
 		return "*" + g.renderType(ctx, t.Elem())
@@ -393,7 +481,27 @@ func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
 			panic("Unable to mock inline interfaces with methods")
 		}
 
-		return "interface{}"
+		rv := []string{"interface{"}
+		for i := 0; i < t.NumEmbeddeds(); i++ {
+			rv = append(rv, g.renderType(ctx, t.EmbeddedType(i)))
+		}
+		rv = append(rv, "}")
+		sep := ""
+		if t.NumEmbeddeds() > 1 {
+			sep = "\n"
+		}
+		return strings.Join(rv, sep)
+	case *types.Union:
+		rv := make([]string, 0, t.Len())
+		for i := 0; i < t.Len(); i++ {
+			term := t.Term(i)
+			if term.Tilde() {
+				rv = append(rv, "~"+g.renderType(ctx, term.Type()))
+			} else {
+				rv = append(rv, g.renderType(ctx, term.Type()))
+			}
+		}
+		return strings.Join(rv, "|")
 	case namer:
 		return t.Name()
 	default:
@@ -501,11 +609,11 @@ func (g *Generator) Generate(ctx context.Context) error {
 	)
 
 	g.printf(
-		"type %s struct {\n\tmock.Mock\n}\n\n", g.mockName(),
+		"type %s%s struct {\n\tmock.Mock\n}\n\n", g.mockName(), g.getTypeConstraintString(ctx),
 	)
 
 	if g.WithExpecter {
-		g.generateExpecterStruct()
+		g.generateExpecterStruct(ctx)
 	}
 
 	for _, method := range g.iface.Methods() {
@@ -530,7 +638,7 @@ func (g *Generator) Generate(ctx context.Context) error {
 			)
 		}
 		g.printf(
-			"func (_m *%s) %s(%s) ", g.mockName(), fname,
+			"func (_m *%s%s) %s(%s) ", g.mockName(), g.getInstantiatedTypeString(), fname,
 			strings.Join(params.Params, ", "),
 		)
 
@@ -597,30 +705,38 @@ func (g *Generator) Generate(ctx context.Context) error {
 
 		// Construct expecter helper functions
 		if g.WithExpecter {
-			g.generateExpecterMethodCall(method, params, returns)
+			g.generateExpecterMethodCall(ctx, method, params, returns)
 		}
 	}
+
+	g.generateConstructor(ctx)
 
 	return nil
 }
 
-func (g *Generator) generateExpecterStruct() {
-	data := struct{ MockName, ExpecterName string }{
-		MockName:     g.mockName(),
-		ExpecterName: g.expecterName(),
+func (g *Generator) generateExpecterStruct(ctx context.Context) {
+	data := struct {
+		MockName, ExpecterName string
+		InstantiatedTypeString string
+		TypeConstraint         string
+	}{
+		MockName:               g.mockName(),
+		ExpecterName:           g.expecterName(),
+		InstantiatedTypeString: g.getInstantiatedTypeString(),
+		TypeConstraint:         g.getTypeConstraintString(ctx),
 	}
 	g.printTemplate(data, `
-type {{.ExpecterName}} struct {
+type {{.ExpecterName}}{{ .TypeConstraint }} struct {
 	mock *mock.Mock
 }
 
-func (_m *{{.MockName}}) EXPECT() *{{.ExpecterName}} {
-	return &{{.ExpecterName}}{mock: &_m.Mock}
+func (_m *{{.MockName}}{{ .InstantiatedTypeString }}) EXPECT() *{{.ExpecterName}}{{ .InstantiatedTypeString }} {
+	return &{{.ExpecterName}}{{ .InstantiatedTypeString }}{mock: &_m.Mock}
 }
 `)
 }
 
-func (g *Generator) generateExpecterMethodCall(method *Method, params, returns *paramList) {
+func (g *Generator) generateExpecterMethodCall(ctx context.Context, method *Method, params, returns *paramList) {
 
 	data := struct {
 		MockName, ExpecterName string
@@ -630,13 +746,17 @@ func (g *Generator) generateExpecterMethodCall(method *Method, params, returns *
 		LastParamName          string
 		LastParamType          string
 		NbNonVariadic          int
+		InstantiatedTypeString string
+		TypeConstraint         string
 	}{
-		MockName:     g.mockName(),
-		ExpecterName: g.expecterName(),
-		CallStruct:   fmt.Sprintf("%s_%s_Call", g.mockName(), method.Name),
-		MethodName:   method.Name,
-		Params:       params,
-		Returns:      returns,
+		MockName:               g.mockName(),
+		ExpecterName:           g.expecterName(),
+		CallStruct:             fmt.Sprintf("%s_%s_Call", g.mockName(), method.Name),
+		MethodName:             method.Name,
+		Params:                 params,
+		Returns:                returns,
+		InstantiatedTypeString: g.getInstantiatedTypeString(),
+		TypeConstraint:         g.getTypeConstraintString(ctx),
 	}
 
 	// Get some info about parameters for variadic methods, way easier than doing it in golang template directly
@@ -648,16 +768,16 @@ func (g *Generator) generateExpecterMethodCall(method *Method, params, returns *
 
 	g.printTemplate(data, `
 // {{.CallStruct}} is a *mock.Call that shadows Run/Return methods with type explicit version for method '{{.MethodName}}'
-type {{.CallStruct}} struct {
+type {{.CallStruct}}{{ .TypeConstraint }} struct {
 	*mock.Call
 }
 
 // {{.MethodName}} is a helper method to define mock.On call
 {{- range .Params.Params}}
-//  - {{.}} 
+//  - {{.}}
 {{- end}}
-func (_e *{{.ExpecterName}}) {{.MethodName}}({{range .Params.ParamsIntf}}{{.}},{{end}}) *{{.CallStruct}} {
-	return &{{.CallStruct}}{Call: _e.mock.On("{{.MethodName}}",
+func (_e *{{.ExpecterName}}{{ .InstantiatedTypeString }}) {{.MethodName}}({{range .Params.ParamsIntf}}{{.}},{{end}}) *{{.CallStruct}}{{ .InstantiatedTypeString }} {
+	return &{{.CallStruct}}{{ .InstantiatedTypeString }}{Call: _e.mock.On("{{.MethodName}}",
 			{{- if not .Params.Variadic }}
 				{{- range .Params.Names}}{{.}},{{end}}
 			{{- else }}
@@ -670,7 +790,7 @@ func (_e *{{.ExpecterName}}) {{.MethodName}}({{range .Params.ParamsIntf}}{{.}},{
 			{{- end }} )}
 }
 
-func (_c *{{.CallStruct}}) Run(run func({{range .Params.Params}}{{.}},{{end}})) *{{.CallStruct}} {
+func (_c *{{.CallStruct}}{{ .InstantiatedTypeString }}) Run(run func({{range .Params.Params}}{{.}},{{end}})) *{{.CallStruct}}{{ .InstantiatedTypeString }} {
 	_c.Call.Run(func(args mock.Arguments) {
 	{{- if not .Params.Variadic }}
 		run({{range $i, $type := .Params.Types }}args[{{$i}}].({{$type}}),{{end}})
@@ -692,11 +812,47 @@ func (_c *{{.CallStruct}}) Run(run func({{range .Params.Params}}{{.}},{{end}})) 
 	return _c
 }
 
-func (_c *{{.CallStruct}}) Return({{range .Returns.Params}}{{.}},{{end}}) *{{.CallStruct}} {
+func (_c *{{.CallStruct}}{{ .InstantiatedTypeString }}) Return({{range .Returns.Params}}{{.}},{{end}}) *{{.CallStruct}}{{ .InstantiatedTypeString }} {
 	_c.Call.Return({{range .Returns.Names}}{{.}},{{end}})
 	return _c
 }
 `)
+}
+
+func (g *Generator) generateConstructor(ctx context.Context) {
+	const constructorTemplate = `
+type {{ .ConstructorTestingInterfaceName }} interface {
+	mock.TestingT
+	Cleanup(func())
+}
+
+// {{ .ConstructorName }} creates a new instance of {{ .MockName }}. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+func {{ .ConstructorName }}{{ .TypeConstraint }}(t {{ .ConstructorTestingInterfaceName }}) *{{ .MockName }}{{ .InstantiatedTypeString }} {
+	mock := &{{ .MockName }}{{ .InstantiatedTypeString }}{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+`
+	mockName := g.mockName()
+	constructorName := g.maybeMakeNameExported("new"+g.makeNameExported(mockName), ast.IsExported(mockName))
+
+	data := struct {
+		ConstructorName                 string
+		ConstructorTestingInterfaceName string
+		InstantiatedTypeString          string
+		MockName                        string
+		TypeConstraint                  string
+	}{
+		ConstructorName:                 constructorName,
+		ConstructorTestingInterfaceName: mockConstructorParamTypeNamePrefix + constructorName,
+		InstantiatedTypeString:          g.getInstantiatedTypeString(),
+		MockName:                        mockName,
+		TypeConstraint:                  g.getTypeConstraintString(ctx),
+	}
+	g.printTemplate(data, constructorTemplate)
 }
 
 // generateCalled returns the Mock.Called invocation string and, if necessary, prints the

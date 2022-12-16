@@ -29,6 +29,7 @@ import (
 	"github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/queue"
 	"github.com/connylabs/ingest/storage"
+	"github.com/connylabs/ingest/storage/multi"
 	"github.com/connylabs/ingest/version"
 )
 
@@ -266,7 +267,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 				}, reg)
 				ss = append(ss, storage.NewInstrumentedStorage(destinations[d], reg))
 			}
-			s := storage.NewMultiStorage(ss...)
+			s := multi.NewMultiStorage(ss...)
 			if len(ss) > 1 {
 				s = storage.NewInstrumentedStorage(s, prometheus.WrapRegistererWith(prometheus.Labels{"destination": "multi", "plugin": "multi"}, reg))
 			}

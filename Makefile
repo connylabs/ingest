@@ -103,38 +103,37 @@ gen-mock: mocks/nexter.go mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go moc
 
 mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Queue"
+	$(MOCKERY_BINARY) --filename $(@F) --name Queue
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
 mocks/enqueuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Enqueuer"
+	$(MOCKERY_BINARY) --filename $(@F) --name Enqueuer
 
 mocks/client.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Client"
+	$(MOCKERY_BINARY) --filename $(@F) --name Client
 
 mocks/dequeuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Dequeuer"
+	$(MOCKERY_BINARY) --filename $(@F) --name Dequeuer
 
 mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Subscription"
+	$(MOCKERY_BINARY) --filename $(@F) --name Subscription
 	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
 mocks/nexter.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --name="Nexter"
+	$(MOCKERY_BINARY) --filename $(@F) --name Nexter
 
 mocks/storage.go: storage/storage.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --filename $(@F) --dir storage --name="Storage"
-
+	$(MOCKERY_BINARY) --filename $(@F) --dir storage --name Storage --with-expecter
 
 mocks/minio_client.go: storage/s3/s3.go $(MOCKERY_BINARY)
 	rm -f $@
-	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/storage/s3 --filename $(@F) --name="MinioClient"
+	$(MOCKERY_BINARY) --srcpkg github.com/connylabs/ingest/storage/s3 --filename $(@F) --name MinioClient
 
 lint-go: $(GOLANGCI_LINT_BINARY)
 	$(GOLANGCI_LINT_BINARY) run
