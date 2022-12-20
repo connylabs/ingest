@@ -39,6 +39,19 @@ jobs:
         make README.md -B
         git diff --exit-code
 
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18.0
+    - name: Generate
+      run: |
+        make gen-mock -B
+        git diff --exit-code
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -136,6 +149,7 @@ jobs:
     - build
     - all-build
     - container
+    - generate
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
