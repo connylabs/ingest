@@ -25,11 +25,11 @@ SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
 GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
 
-EMBEDMD_BINARY := $(shell pwd)/$(BIN_DIR)/embedmd
-GOLANGCI_LINT_BINARY := $(shell pwd)/$(BIN_DIR)/golangci-lint
-MOCKERY_BINARY := $(shell pwd)/$(BIN_DIR)/mockery
-NATS_BINARY := $(shell pwd)/$(BIN_DIR)/nats
-MINIO_CLIENT_BINARY := $(shell pwd)/$(BIN_DIR)/mc
+EMBEDMD_BINARY := $(BIN_DIR)/embedmd
+GOLANGCI_LINT_BINARY := $(BIN_DIR)/golangci-lint
+MOCKERY_BINARY := $(BIN_DIR)/mockery
+NATS_BINARY := $(BIN_DIR)/nats
+MINIO_CLIENT_BINARY := $(BIN_DIR)/mc
 
 BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.18.1
 CC_amd64 ?= gcc
@@ -42,12 +42,14 @@ BUILD_SUFIX :=
 ifeq ($(CONTAINERIZE_BUILD), true)
 	BUILD_PREFIX := docker run --rm \
 	    -u $$(id -u):$$(id -g) \
-	    -v $$(pwd):/$(PROJECT) \
-	    -w /$(PROJECT) \
+	    -v $$(pwd):/src \
+	    -w /src \
 	    -e CC=$(CC_$(ARCH)) \
 	    --entrypoint '' \
 	    $(BUILD_IMAGE) \
-	    /bin/sh -c '
+	    /bin/sh -c ' \
+	        GOCACHE=$$(pwd)/.cache
+
 	BUILD_SUFIX := '
 endif
 
@@ -64,7 +66,6 @@ $(BINS): $(SRC) go.mod
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 3,$(subst /, ,$@)) \
 	        GOOS=$(word 2,$(subst /, ,$@)) \
-	        GOCACHE=$$(pwd)/.cache \
 		CGO_ENABLED=1 \
 		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
@@ -80,7 +81,6 @@ $(PLUGINS): $(SRC) go.mod
 	@$(BUILD_PREFIX) \
 	        GOARCH=$(word 4,$(subst /, ,$@)) \
 	        GOOS=$(word 3,$(subst /, ,$@)) \
-	        GOCACHE=$$(pwd)/.cache \
 		CGO_ENABLED=1 \
 		go build -mod=vendor -o $@ \
 		    $(LD_FLAGS) \
@@ -159,13 +159,21 @@ $(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
 
 $(NATS_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ github.com/nats-io/natscli/nats
+	@$(BUILD_PREFIX) \
+		go build -mod=vendor -o $@ github.com/nats-io/natscli/nats \
+	$(BUILD_SUFIX)
 
 $(MINIO_CLIENT_BINARY): | $(BIN_DIR)
-	go build -mod=vendor -o $@ github.com/minio/mc
+	@$(BUILD_PREFIX) \
+		go build -mod=vendor -o $@ github.com/minio/mc \
+	$(BUILD_SUFIX)
 
 $(MOCKERY_BINARY): | $(BIN_DIR)
-	go build -o $@ github.com/vektra/mockery/v2
+	$(BUILD_PREFIX) \
+		go build -o $@ github.com/vektra/mockery/v2 \
+	$(BUILD_SUFIX)
 
 $(EMBEDMD_BINARY): | $(BIN_DIR)
-	go build -o $@ github.com/campoy/embedmd
+	@$(BUILD_PREFIX) \
+		go build -o $@ github.com/campoy/embedmd \
+	$(BUILD_SUFIX)

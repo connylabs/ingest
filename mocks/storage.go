@@ -55,8 +55,8 @@ type Storage_Stat_Call struct {
 }
 
 // Stat is a helper method to define mock.On call
-//   - ctx context.Context
-//   - element ingest.Codec
+//  - ctx context.Context
+//  - element ingest.Codec
 func (_e *Storage_Expecter) Stat(ctx interface{}, element interface{}) *Storage_Stat_Call {
 	return &Storage_Stat_Call{Call: _e.mock.On("Stat", ctx, element)}
 }
@@ -102,9 +102,9 @@ type Storage_Store_Call struct {
 }
 
 // Store is a helper method to define mock.On call
-//   - ctx context.Context
-//   - element ingest.Codec
-//   - obj ingest.Object
+//  - ctx context.Context
+//  - element ingest.Codec
+//  - obj ingest.Object
 func (_e *Storage_Expecter) Store(ctx interface{}, element interface{}, obj interface{}) *Storage_Store_Call {
 	return &Storage_Store_Call{Call: _e.mock.On("Store", ctx, element, obj)}
 }
