@@ -258,7 +258,7 @@ func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags
 			ss := make([]storage.Storage, 0, len(w.Destinations))
 			for _, d := range w.Destinations {
 				t := "unknown"
-				if dt, ok := destinations[d].(config.DestinationTyper); ok {
+				if dt, ok := destinations[d].(*config.DestinationTyper); ok {
 					t = dt.Type()
 				}
 				reg := prometheus.WrapRegistererWith(prometheus.Labels{
