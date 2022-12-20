@@ -77,7 +77,15 @@ workflows:
 
 			pm := &plugin.PluginManager{}
 			t.Cleanup(pm.Stop)
-			_, _, err = c.ConfigurePlugins(pm, tc.paths)
+			ss, ds, err := c.ConfigurePlugins(pm, tc.paths)
+			for _, s := range ss {
+				_, ok := s.(*SourceTyper)
+				assert.True(t, ok)
+			}
+			for _, d := range ds {
+				_, ok := d.(*DestinationTyper)
+				assert.True(t, ok)
+			}
 			assert.ErrorIs(t, err, tc.err, errors.Unwrap(err))
 		})
 	}
