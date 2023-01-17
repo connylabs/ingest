@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -28,10 +29,16 @@ type Storage interface {
 
 type instrumentedStorage struct {
 	Storage
-	operationsTotal *prometheus.CounterVec
+	operationsTotal   *prometheus.CounterVec
+	operationDuration *prometheus.HistogramVec
 }
 
 func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Codec) (*ObjectInfo, error) {
+	start := time.Now()
+	defer func() {
+		i.operationDuration.WithLabelValues("stat").Observe(time.Since(start).Seconds())
+	}()
+
 	oi, err := i.Storage.Stat(ctx, element)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("stat", "success").Inc()
@@ -42,6 +49,11 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Codec) (*O
 }
 
 func (i instrumentedStorage) Store(ctx context.Context, element ingest.Codec, obj ingest.Object) (*url.URL, error) {
+	start := time.Now()
+	defer func() {
+		i.operationDuration.WithLabelValues("store").Observe(time.Since(start).Seconds())
+	}()
+
 	u, err := i.Storage.Store(ctx, element, obj)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
@@ -58,7 +70,14 @@ func NewInstrumentedStorage(s Storage, r prometheus.Registerer) Storage {
 		Help: "Number of storage operations.",
 	}, []string{"operation", "result"})
 
+	operationDuration := promauto.With(r).NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "ingest_storage_operation_duration_seconds",
+		Help:    "How many seconds it took to perform the storage operation.",
+		Buckets: []float64{0.01, 0.1, 0.3, 1, 3, 10, 30, 60, 90, 120, 240, 360, 600},
+	}, []string{"operation"})
+
 	for _, o := range []string{"stat", "store"} {
+		operationDuration.WithLabelValues(o).Observe(0)
 		for _, r := range []string{"error", "success"} {
 			operationsTotal.WithLabelValues(o, r).Add(0)
 		}
@@ -67,5 +86,6 @@ func NewInstrumentedStorage(s Storage, r prometheus.Registerer) Storage {
 	return &instrumentedStorage{
 		s,
 		operationsTotal,
+		operationDuration,
 	}
 }
