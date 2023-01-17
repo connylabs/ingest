@@ -8,7 +8,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"golang.org/x/exp/slices"
 
 	"github.com/connylabs/ingest"
 )
@@ -30,25 +29,18 @@ func New(url string, stream string, replicas int, subjects []string, maxMsgs int
 	if err != nil {
 		return &queue{conn: nil}, err
 	}
-	_, err = js.AddStream(&nats.StreamConfig{
+	jsConfig := &nats.StreamConfig{
 		Name:      stream,
 		Subjects:  subjects,
 		Retention: nats.InterestPolicy,
 		Replicas:  replicas,
 		MaxMsgs:   maxMsgs,
-	})
+	}
+	_, err = js.AddStream(jsConfig)
 	if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-		si, err := js.StreamInfo(stream)
-		if err != nil {
-			return &queue{conn: nil}, err
+		if _, err := js.UpdateStream(jsConfig); err != nil {
+			return nil, fmt.Errorf("failed to update stream: %w", err)
 		}
-		if si.Config.Retention != nats.InterestPolicy {
-			return &queue{conn: nil}, errors.New("expected stream with interest based retention")
-		}
-		if !slices.Equal(si.Config.Subjects, subjects) {
-			return &queue{conn: nil}, fmt.Errorf("expected stream with subjects %v", subjects)
-		}
-
 	} else if err != nil {
 		return &queue{conn: nil}, err
 	}
