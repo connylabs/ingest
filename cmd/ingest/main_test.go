@@ -253,7 +253,9 @@ workflows:
 	rawConfig, err := io.ReadAll(b)
 	require.NoError(t, err)
 
-	c, err := config.New(rawConfig)
+	reg := prometheus.NewRegistry()
+
+	c, err := config.New(rawConfig, reg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -261,10 +263,8 @@ workflows:
 
 	pm := &plugin.PluginManager{}
 	t.Cleanup(pm.Stop)
-	sources, destintations, err := c.ConfigurePlugins(pm, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)})
+	sources, destintations, err := c.ConfigurePlugins(pm, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)}, true)
 	require.NoError(t, err)
-
-	reg := prometheus.NewRegistry()
 
 	q, err := queue.New(natsEndpoint, stream, 1, []string{fmt.Sprintf("%s.*", subject)}, 1000, reg)
 	require.NoError(t, err)

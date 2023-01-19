@@ -11,6 +11,8 @@ import (
 
 	"github.com/ghodss/yaml"
 	"github.com/mitchellh/mapstructure"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/plugin"
@@ -19,21 +21,26 @@ import (
 var defaultInterval = Duration(5 * time.Minute)
 
 // NewFromPath creates a new Config from the given file path.
-func NewFromPath(path string) (*Config, error) {
+func NewFromPath(path string, r prometheus.Registerer) (*Config, error) {
 	f, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read tenant configuration file from path %q: %w", path, err)
 	}
-	return New(f)
+	return New(f, r)
 }
 
 // New creates a new Config from the given file content.
-func New(buf []byte) (*Config, error) {
+func New(buf []byte, r prometheus.Registerer) (*Config, error) {
 	c := new(Config)
 
 	if err := yaml.Unmarshal(buf, c); err != nil {
 		return nil, fmt.Errorf("unable to read configuration YAML: %w", err)
 	}
+	c.workflowInstantiationFailuresTotal = promauto.With(r).NewCounter(prometheus.CounterOpts{
+		Name: "ingest_workflow_instantiation_failures_total",
+		Help: "Number of failures while instantiating workflows.",
+	})
+
 	return c, nil
 }
 
@@ -87,57 +94,35 @@ type Config struct {
 	Sources      []Source
 	Destinations []Destination
 	Workflows    []Workflow
+
+	workflowInstantiationFailuresTotal prometheus.Counter
 }
 
 // ConfigurePlugins configures the plugins found in path.
-func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string) (map[string]plugin.Source, map[string]plugin.Destination, error) {
+func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string, strict bool) (map[string]plugin.Source, map[string]plugin.Destination, error) {
 	// Collect all of the named pluginPaths.
 	pluginPaths := make(map[string]string)
 	sources := make(map[string]plugin.Source)
 	destinations := make(map[string]plugin.Destination)
 	pluginNames := make(map[string]struct{})
-	sourceNames := make(map[string]struct{})
-	destinationNames := make(map[string]struct{})
+	sourceNames := make(map[string]int)
+	destinationNames := make(map[string]int)
 	workflowNames := make(map[string]struct{})
 	// Validate the sources.
-	for _, s := range c.Sources {
+	for i, s := range c.Sources {
 		pluginNames[s.Type] = struct{}{}
 		if _, ok := sourceNames[s.Name]; ok {
 			return nil, nil, fmt.Errorf("found duplicate source %q", s.Name)
 		}
-		sourceNames[s.Name] = struct{}{}
+		sourceNames[s.Name] = i
 	}
 	// Validate the destinations.
-	for _, d := range c.Destinations {
+	for i, d := range c.Destinations {
 		pluginNames[d.Type] = struct{}{}
 		if _, ok := destinationNames[d.Name]; ok {
 			return nil, nil, fmt.Errorf("found duplicate destination %q", d.Name)
 		}
-		destinationNames[d.Name] = struct{}{}
-	}
-	// Validate the workflows.
-	for i, w := range c.Workflows {
-		if _, ok := workflowNames[w.Name]; ok {
-			return nil, nil, fmt.Errorf("found duplicate workflow %q", w.Name)
-		}
-		workflowNames[w.Name] = struct{}{}
-		if _, ok := sourceNames[w.Source]; !ok {
-			return nil, nil, fmt.Errorf("workflow %q references non-existent source %q", w.Name, w.Source)
-		}
-		for _, d := range w.Destinations {
-			if _, ok := destinationNames[d]; !ok {
-				return nil, nil, fmt.Errorf("workflow %q references non-existent destination %q", w.Name, d)
-			}
-		}
-		if w.Interval == nil {
-			c.Workflows[i].Interval = &defaultInterval
-		}
-		if w.BatchSize == 0 {
-			c.Workflows[i].BatchSize = ingest.DefaultBatchSize
-		}
-		if w.Concurrency == 0 {
-			c.Workflows[i].Concurrency = c.Workflows[i].BatchSize
-		}
+		destinationNames[d.Name] = i
 	}
 	// Find plugin paths
 	for pn := range pluginNames {
@@ -147,25 +132,77 @@ func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string) (map
 		}
 		pluginPaths[pn] = pp
 	}
-	// Instantiate the sources.
-	for i := range c.Sources {
-		s, err := pm.NewSource(pluginPaths[c.Sources[i].Type], c.Sources[i].Config)
-		if s == nil {
-			return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", c.Sources[i].Name, err)
+	i := 0
+	// Validate the workflows.
+workflow:
+	for _, w := range c.Workflows {
+		if _, ok := workflowNames[w.Name]; ok {
+			return nil, nil, fmt.Errorf("found duplicate workflow %q", w.Name)
+		}
+		if _, ok := sourceNames[w.Source]; !ok {
+			if strict {
+				return nil, nil, fmt.Errorf("workflow %q references non-existent source %q", w.Name, w.Source)
+			}
+			c.workflowInstantiationFailuresTotal.Inc()
+			continue
+		}
+		// Instantiate the source.
+		// Ensure a source is only instantiated once.
+		if _, ok := sources[w.Source]; !ok {
+			s, err := pm.NewSource(pluginPaths[c.Sources[sourceNames[w.Source]].Type], c.Sources[sourceNames[w.Source]].Config)
+			if s == nil {
+				if strict {
+					return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", w.Source, err)
+				}
+				c.workflowInstantiationFailuresTotal.Inc()
+				continue
+			}
+			sources[w.Source] = &SourceTyper{s, c.Sources[sourceNames[w.Source]].Type}
 		}
 
-		sources[c.Sources[i].Name] = &SourceTyper{s, c.Sources[i].Type}
-	}
-	// Instantiate the destinations.
-	for i := range c.Destinations {
-		d, err := pm.NewDestination(pluginPaths[c.Destinations[i].Type], c.Destinations[i].Config)
-		if d == nil {
-			return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", c.Destinations[i].Name, err)
+		for _, d := range w.Destinations {
+			if _, ok := destinationNames[d]; !ok {
+				if strict {
+					return nil, nil, fmt.Errorf("workflow %q references non-existent destination %q", w.Name, d)
+				}
+				c.workflowInstantiationFailuresTotal.Inc()
+				continue workflow
+			}
+			// Instantiate the destinations.
+			// Ensure a destination is only instantiated once.
+			if _, ok := destinations[d]; !ok {
+				if _, ok := destinations[d]; !ok {
+					dd, err := pm.NewDestination(pluginPaths[c.Destinations[destinationNames[d]].Type], c.Destinations[destinationNames[d]].Config)
+					if dd == nil {
+						if strict {
+							return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", d, err)
+						}
+						c.workflowInstantiationFailuresTotal.Inc()
+						continue workflow
+					}
+					destinations[d] = &DestinationTyper{dd, c.Destinations[i].Type}
+				}
+			}
 		}
-
-		destinations[c.Destinations[i].Name] = &DestinationTyper{d, c.Destinations[i].Type}
-
+		if w.Interval == nil {
+			w.Interval = &defaultInterval
+		}
+		if w.BatchSize == 0 {
+			w.BatchSize = ingest.DefaultBatchSize
+		}
+		if w.Concurrency == 0 {
+			w.Concurrency = w.BatchSize
+		}
+		c.Workflows[i] = w
+		workflowNames[w.Name] = struct{}{}
+		i++
 	}
+	// Clean up unused workflows.
+	for j := i; j < len(c.Workflows); j++ {
+		c.Workflows[j] = Workflow{}
+	}
+	c.Workflows = c.Workflows[:i]
+
 	return sources, destinations, nil
 }
 
