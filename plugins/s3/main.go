@@ -47,7 +47,7 @@ func (d *destination) Configure(config map[string]interface{}) error {
 	dc := new(destinationConfig)
 	err := mapstructure.Decode(config, dc)
 	if err != nil {
-		return nil
+		return err
 	}
 	if dc.Endpoint == "" {
 		dc.Endpoint = defaultEndpoint

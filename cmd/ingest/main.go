@@ -85,6 +85,7 @@ type flags struct {
 	pluginDirectories *[]string
 	configPath        *string
 	dryRun            *bool
+	strictWorkflows   *bool
 }
 
 // Main is a convenience function that serves as a main that can return an error.
@@ -109,6 +110,7 @@ func Main() error {
 		pluginDirectories: flag.StringSlice("plugins", []string{filepath.Join(hd, ".config/ingest/plugins")}, "The directories in which to look for plugins. Directories are searched in the order specified with the first match taking precedence"),
 		configPath:        flag.String("config", filepath.Join(hd, ".config/ingest/config"), "The path to the configuration file for ingest"),
 		dryRun:            flag.Bool("dry-run", false, "Only load the configuration and exit without performing any copy operations"),
+		strictWorkflows:   flag.Bool("strict-workflows", true, "Fail if any of the workflows cannot be started due to a configuration problem."),
 	}
 
 	flag.Parse()
@@ -143,7 +145,13 @@ func Main() error {
 		return nil
 	}
 
-	c, err := config.NewFromPath(*appFlags.configPath)
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	c, err := config.NewFromPath(*appFlags.configPath, reg)
 	if err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
@@ -151,13 +159,8 @@ func Main() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
 	pm := &plugin.PluginManager{Interval: watchPluginInterval}
-	sources, destinations, err := c.ConfigurePlugins(pm, *appFlags.pluginDirectories)
+	sources, destinations, err := c.ConfigurePlugins(pm, *appFlags.pluginDirectories, *appFlags.strictWorkflows)
 	if err != nil {
 		return err
 	}
