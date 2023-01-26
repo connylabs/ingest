@@ -146,7 +146,7 @@ func (s *source) Next(_ context.Context) (*ingest.Codec, error) {
 			prefix: s.prefix,
 			name:   strings.TrimPrefix(oi.Key, s.prefix),
 		}
-		c := ingest.NewCodec(e.ID(), e.Name())
+		c := ingest.NewCodec(e.ID(), e.Name(), nil)
 		return &c, nil
 	}
 

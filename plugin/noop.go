@@ -18,7 +18,7 @@ import (
 
 var (
 	// defaultCodec can be used for testing against this noop plugin.
-	defaultCodec  = ingest.NewCodec("id", "name")
+	defaultCodec  = ingest.NewCodec("id", "name", nil)
 	DefaultLogger = hclog.New(&hclog.LoggerOptions{
 		Level:      hclog.Trace,
 		Output:     os.Stderr,
@@ -97,7 +97,7 @@ func (s *noopSource) Next(_ context.Context) (*ingest.Codec, error) {
 
 func (s *noopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
 	s.l.Debug("call cleanup")
-	if i != defaultCodec {
+	if i.ID != defaultCodec.ID {
 		return fmt.Errorf("id %q not found", i.ID)
 	}
 
@@ -106,7 +106,7 @@ func (s *noopSource) CleanUp(ctx context.Context, i ingest.Codec) error {
 
 // Download will take an Element and download it from S3
 func (s *noopSource) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, error) {
-	if i != defaultCodec {
+	if i.ID != defaultCodec.ID {
 		return nil, fmt.Errorf("id %q not found", i.ID)
 	}
 	return &ingest.Object{
@@ -140,7 +140,7 @@ func (d *noopDestination) Configure(config map[string]interface{}) error {
 }
 
 func (d *noopDestination) Stat(ctx context.Context, element ingest.Codec) (*storage.ObjectInfo, error) {
-	if element != defaultCodec {
+	if element.ID != defaultCodec.ID {
 		return nil, os.ErrNotExist
 	}
 	return &storage.ObjectInfo{

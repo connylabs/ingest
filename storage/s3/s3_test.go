@@ -18,7 +18,7 @@ func TestStore(t *testing.T) {
 	t.Run("using meta objects", func(t *testing.T) {
 		mc := new(mocks.MinioClient)
 
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 		obj := &ingest.Object{
 			MimeType: "plain/text",
 			Len:      64,
@@ -52,7 +52,7 @@ func TestStore(t *testing.T) {
 	})
 	t.Run("not using meta objects", func(t *testing.T) {
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 		obj := &ingest.Object{
 			MimeType: "plain/text",
 			Len:      64,
@@ -86,7 +86,7 @@ func TestStore(t *testing.T) {
 func TestStat(t *testing.T) {
 	t.Run("no object, no meta object", func(t *testing.T) {
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once().
 			On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
@@ -115,7 +115,7 @@ func TestStat(t *testing.T) {
 	})
 	t.Run("object, no meta object", func(t *testing.T) {
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 
 		mc.On("PutObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything, int64(0), mock.Anything).Return(minio.UploadInfo{}, nil).Once()
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once().
@@ -148,7 +148,7 @@ func TestStat(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		logger = log.With(logger, "caller", log.DefaultCaller)
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 
 		mc.On("StatObject", mock.Anything, "bucket", "meta/bar.done", mock.Anything).Return(minio.ObjectInfo{}, nil)
 
@@ -178,7 +178,7 @@ func TestStat(t *testing.T) {
 	t.Run("object exists", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, nil).Once()
 
@@ -206,7 +206,7 @@ func TestStat(t *testing.T) {
 	t.Run("no object", func(t *testing.T) {
 		logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 		mc := new(mocks.MinioClient)
-		_t := ingest.NewCodec("foo", "bar")
+		_t := ingest.NewCodec("foo", "bar", nil)
 
 		mc.On("StatObject", mock.Anything, "bucket", "prefix/bar", mock.Anything).Return(minio.ObjectInfo{}, minio.ErrorResponse{Code: "NoSuchKey"}).Once()
 

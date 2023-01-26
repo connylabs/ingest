@@ -46,7 +46,7 @@ func TestEnqueue(t *testing.T) {
 		{
 			name: "one entry",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
-				t := ingest.NewCodec("foo", "foo")
+				t := ingest.NewCodec("foo", "foo", []byte(`{"key":"value"}`))
 				data, _ := t.Marshal()
 				q := new(mocks.Queue)
 				q.On("Publish", "sub", data).Return(nil).Once()
@@ -60,9 +60,9 @@ func TestEnqueue(t *testing.T) {
 		{
 			name: "two entries",
 			expect: func() (*mocks.Queue, *mocks.Nexter, *ingest.Codec) {
-				t := ingest.NewCodec("foo", "foo")
+				t := ingest.NewCodec("foo", "foo", nil)
 				data, _ := t.Marshal()
-				t2 := ingest.NewCodec("foo2", "foo2")
+				t2 := ingest.NewCodec("foo2", "foo2", nil)
 				data2, _ := t2.Marshal()
 				q := new(mocks.Queue)
 				q.
@@ -86,12 +86,9 @@ func TestEnqueue(t *testing.T) {
 			q, n, _ := tc.expect()
 
 			e, err := New(n, "sub", q, reg, logger)
-			if err != nil {
-				t.Error(err)
-			}
-			if err := e.Enqueue(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(t, err)
+			assert.NoError(t, e.Enqueue(ctx))
+
 			n.AssertExpectations(t)
 			q.AssertExpectations(t)
 
