@@ -56,7 +56,7 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
-		_t := ingest.NewCodec("bar", "foo")
+		_t := ingest.NewCodec("bar", "foo", nil)
 		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
 
@@ -118,7 +118,7 @@ func TestDequeue(t *testing.T) {
 		q := new(mocks.Queue)
 		s := new(mocks.Storage)
 		sub := new(mocks.Subscription)
-		_t := ingest.NewCodec("bar", "foo")
+		_t := ingest.NewCodec("bar", "foo", nil)
 		data, _ := _t.Marshal()
 		msg := &nats.Msg{Data: data}
 

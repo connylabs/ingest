@@ -11,6 +11,8 @@ type Codec struct {
 	// Name is the name of the resource. Destinations will use this
 	// as the key under which to store objects.
 	Name string `json:"name"`
+	// Meta can optionally store additional data that can be consumed by the dequeuer.
+	Meta []byte `json:"meta"`
 }
 
 // Marshal serializes the Identifiable so it can be sent on the queue.
@@ -24,6 +26,6 @@ func (c *Codec) Unmarshal(data []byte) error {
 }
 
 // NewCodec creates a Codec from an existing Identifiable.
-func NewCodec(id, name string) Codec {
-	return Codec{ID: id, Name: name}
+func NewCodec(id, name string, meta []byte) Codec {
+	return Codec{ID: id, Name: name, Meta: meta}
 }

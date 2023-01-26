@@ -75,7 +75,7 @@ func TestNewPluginSource(t *testing.T) {
 
 		require.NoError(t, p.CleanUp(ctx, *n))
 
-		require.Error(t, p.CleanUp(ctx, ingest.NewCodec("unknown", "nobody")))
+		require.Error(t, p.CleanUp(ctx, ingest.NewCodec("unknown", "nobody", nil)))
 	})
 
 	t.Run("Configure", func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestPluginDestination(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, defaultObjURL, u.URI)
 
-		u, err = p.Stat(ctx, ingest.NewCodec("fake id", "unknown"))
+		u, err = p.Stat(ctx, ingest.NewCodec("fake id", "unknown", nil))
 		assert.Nil(t, u)
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
