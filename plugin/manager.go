@@ -8,22 +8,103 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-kit/log"
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
 	hplugin "github.com/hashicorp/go-plugin"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	ps "github.com/prometheus/pushgateway/storage"
 )
+
+func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
+	return &PluginManager{
+		Interval: i,
+		ms:       ps.NewDiskMetricStore("", 0, nil, l),
+	}
+}
 
 // PluginManager can start new plugins watch and kill all plugins.
 type PluginManager struct {
 	Interval time.Duration
 
-	sources     []withClient[Source]
-	destination []withClient[Destination]
+	ms ps.MetricStore
+
+	sources     []withClient[SourceInternal]
+	destination []withClient[DestinationInternal]
 	m           sync.Mutex
 }
 
+func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
+	return pm.ms.GetMetricFamilies(), pm.ms.Healthy()
+}
+
+func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
+	g := multierror.Group{}
+	pm.m.Lock()
+	defer pm.m.Unlock()
+
+	for i := range pm.sources {
+		i := i
+		g.Go(func() error {
+			h := make(map[string]*dto.MetricFamily)
+			mfs, err := pm.sources[i].t.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				h[mf.GetName()] = mf
+			}
+			if err := pm.ms.Ready(); err != nil {
+				return fmt.Errorf("metrics store not ready: %w", err)
+			}
+			if pm.sources[i].labels == nil {
+				pm.sources[i].labels = prometheus.Labels{}
+			}
+			pm.sources[i].labels["instance"] = "plugin"
+			pm.sources[i].labels["component"] = "source"
+			pm.ms.SubmitWriteRequest(ps.WriteRequest{
+				Labels:         pm.sources[i].labels,
+				Timestamp:      time.Now(), // TODO: what time to use?
+				Replace:        false,
+				MetricFamilies: h,
+			})
+			return nil
+		})
+	}
+	for i := range pm.destination {
+		i := i
+		g.Go(func() error {
+			h := make(map[string]*dto.MetricFamily)
+			mfs, err := pm.destination[i].t.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				h[mf.GetName()] = mf
+			}
+			if err := pm.ms.Ready(); err != nil {
+				return fmt.Errorf("metrics store not ready: %w", err)
+			}
+			if pm.destination[i].labels == nil {
+				pm.destination[i].labels = prometheus.Labels{}
+			}
+			pm.destination[i].labels["instance"] = "plugin"
+			pm.destination[i].labels["component"] = "destination"
+			pm.ms.SubmitWriteRequest(ps.WriteRequest{
+				Labels:         pm.destination[i].labels,
+				Timestamp:      time.Now(), // TODO: what time to use?
+				Replace:        false,
+				MetricFamilies: h,
+			})
+			return nil
+		})
+	}
+	return g.Wait().ErrorOrNil()
+}
+
 // NewDestination returns a new Destination interface from a plugin path and configuration.
-func (pm *PluginManager) NewDestination(path string, config map[string]any) (Destination, error) {
+func (pm *PluginManager) NewDestination(path string, config map[string]any, labels prometheus.Labels) (DestinationInternal, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -44,13 +125,13 @@ func (pm *PluginManager) NewDestination(path string, config map[string]any) (Des
 		return nil, fmt.Errorf("failed to configure destination: %w", err)
 	}
 
-	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config})
+	pm.destination = append(pm.destination, withClient[DestinationInternal]{t: d, c: c, path: path, config: config, labels: labels})
 
 	return d, nil
 }
 
 // NewSource returns a new Source interface from a plugin path and configuration.
-func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, error) {
+func (pm *PluginManager) NewSource(path string, config map[string]any, labels prometheus.Labels) (SourceInternal, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -69,7 +150,7 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 		c.Kill()
 		return nil, fmt.Errorf("failed to configure source: %w", err)
 	}
-	pm.sources = append(pm.sources, withClient[Source]{t: s, c: c, path: path, config: config})
+	pm.sources = append(pm.sources, withClient[SourceInternal]{t: s, c: c, path: path, config: config, labels: labels})
 	return s, nil
 }
 
@@ -78,6 +159,8 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 func (pm *PluginManager) Stop() {
 	pm.m.Lock()
 	defer pm.m.Unlock()
+
+	_ = pm.ms.Shutdown()
 
 	g := &multierror.Group{}
 	f := func(c *hplugin.Client) func() error {
@@ -126,6 +209,10 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 					return fmt.Errorf("failed to ping destination: %w", err)
 				}
 			}
+			// TODO: put somewhere else?
+			if err := pm.GatherMetrics(ctx); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -164,20 +251,21 @@ type withClient[T any] struct {
 	path   string
 	c      *hplugin.Client
 	config map[string]any
+	labels prometheus.Labels
 }
 
-func newDestination(cp hplugin.ClientProtocol) (Destination, error) {
+func newDestination(cp hplugin.ClientProtocol) (DestinationInternal, error) {
 	raw, err := cp.Dispense("destination")
 	if err != nil {
 		return nil, fmt.Errorf("failed to dispense destination: %w", err)
 	}
-	return raw.(Destination), nil
+	return raw.(DestinationInternal), nil
 }
 
-func newSource(cp hplugin.ClientProtocol) (Source, error) {
+func newSource(cp hplugin.ClientProtocol) (SourceInternal, error) {
 	raw, err := cp.Dispense("source")
 	if err != nil {
 		return nil, fmt.Errorf("failed to dispense source: %w", err)
 	}
-	return raw.(Source), nil
+	return raw.(SourceInternal), nil
 }

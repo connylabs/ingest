@@ -339,7 +339,7 @@ workflows:
 			c, err := New(tc.config, r)
 			require.NoError(t, err)
 
-			pm := &plugin.PluginManager{}
+			pm := plugin.NewPluginManager(0, nil)
 			t.Cleanup(pm.Stop)
 			ss, ds, err := c.ConfigurePlugins(pm, tc.paths, tc.strict)
 			assert.Equal(t, tc.nSources, len(ss))

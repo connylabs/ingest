@@ -11,13 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build linux
 // +build linux
 
 package sysfs
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -67,13 +67,13 @@ func (fs FS) NetClassDevices() ([]string, error) {
 	var res []string
 	path := fs.sys.Path(netclassPath)
 
-	devices, err := ioutil.ReadDir(path)
+	devices, err := os.ReadDir(path)
 	if err != nil {
 		return res, fmt.Errorf("cannot access dir %q: %w", path, err)
 	}
 
 	for _, deviceDir := range devices {
-		if deviceDir.Mode().IsRegular() {
+		if deviceDir.Type().IsRegular() {
 			continue
 		}
 		res = append(res, deviceDir.Name())
@@ -82,7 +82,7 @@ func (fs FS) NetClassDevices() ([]string, error) {
 	return res, nil
 }
 
-// NetClassByIface returns info for a single net interfaces (iface)
+// NetClassByIface returns info for a single net interfaces (iface).
 func (fs FS) NetClassByIface(devicePath string) (*NetClassIface, error) {
 	path := fs.sys.Path(netclassPath)
 
@@ -121,13 +121,13 @@ func (fs FS) NetClass() (NetClass, error) {
 func parseNetClassIface(devicePath string) (*NetClassIface, error) {
 	interfaceClass := NetClassIface{}
 
-	files, err := ioutil.ReadDir(devicePath)
+	files, err := os.ReadDir(devicePath)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, f := range files {
-		if !f.Mode().IsRegular() {
+		if !f.Type().IsRegular() {
 			continue
 		}
 		name := filepath.Join(devicePath, f.Name())

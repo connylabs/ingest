@@ -19,12 +19,12 @@ var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runt
 
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		err = p.Configure(nil)
@@ -52,12 +52,12 @@ func TestNewPluginSource(t *testing.T) {
 	})
 
 	t.Run("Download and CleanUp", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		err = p.Configure(nil)
@@ -79,24 +79,36 @@ func TestNewPluginSource(t *testing.T) {
 	})
 
 	t.Run("Configure", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		assert.Error(t, p.Configure(map[string]any{"error": "an error"}))
 		assert.Equal(t, "an error", p.Configure(map[string]any{"error": "an error"}).Error())
 		assert.NoError(t, p.Configure(nil))
 	})
+
+	t.Run("Gather", func(t *testing.T) {
+		pm := NewPluginManager(0, nil)
+		t.Cleanup(pm.Stop)
+
+		p, err := pm.NewSource(noopPath, nil, nil)
+		require.NoError(t, err)
+
+		_, err = p.Gather()
+
+		assert.NoError(t, err)
+	})
 }
 
 func TestPluginDestination(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -106,11 +118,11 @@ func TestPluginDestination(t *testing.T) {
 
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -127,11 +139,11 @@ func TestPluginDestination(t *testing.T) {
 
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -149,5 +161,17 @@ func TestPluginDestination(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Nil(t, u)
+	})
+
+	t.Run("Gather", func(t *testing.T) {
+		pm := NewPluginManager(0, nil)
+		t.Cleanup(pm.Stop)
+
+		p, err := pm.NewDestination(noopPath, nil, nil)
+		require.NoError(t, err)
+
+		_, err = p.Gather()
+
+		assert.NoError(t, err)
 	})
 }

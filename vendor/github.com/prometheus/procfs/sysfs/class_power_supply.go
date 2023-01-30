@@ -11,13 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build linux
 // +build linux
 
 package sysfs
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -108,7 +108,7 @@ type PowerSupplyClass map[string]PowerSupply
 func (fs FS) PowerSupplyClass() (PowerSupplyClass, error) {
 	path := fs.sys.Path("class/power_supply")
 
-	dirs, err := ioutil.ReadDir(path)
+	dirs, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
@@ -128,14 +128,14 @@ func (fs FS) PowerSupplyClass() (PowerSupplyClass, error) {
 }
 
 func parsePowerSupply(path string) (*PowerSupply, error) {
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 
 	var ps PowerSupply
 	for _, f := range files {
-		if !f.Mode().IsRegular() {
+		if !f.Type().IsRegular() {
 			continue
 		}
 

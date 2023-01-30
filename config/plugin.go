@@ -5,7 +5,7 @@ import "github.com/connylabs/ingest/plugin"
 // SourceTyper implements the plugin.Source interface and exposes an additional method
 // to determine the kind of plugin that is wrapped.
 type SourceTyper struct {
-	plugin.Source
+	plugin.SourceInternal
 	t string
 }
 

@@ -7,6 +7,9 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -23,20 +26,45 @@ type Source interface {
 	Configure(map[string]any) error
 }
 
+type SourceInternal interface {
+	Source
+	Gather() ([]*dto.MetricFamily, error)
+}
+
 // A Destination represents an API to which objects should be uploaded.
 type Destination interface {
 	storage.Storage
 	Configure(map[string]any) error
 }
 
+// A Destination represents an API to which objects should be uploaded.
+type DestinationInternal interface {
+	Destination
+	Gather() ([]*dto.MetricFamily, error)
+}
+
 type pluginSource struct {
 	impl Source
+	cs   []prometheus.Collector
 	l    hclog.Logger
 	ctx  context.Context
 }
 
 func (p *pluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx}, nil
+	reg := prometheus.NewRegistry()
+
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	for _, c := range p.cs {
+		if err := reg.Register(c); err != nil {
+			return nil, err
+		}
+	}
+
+	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
 }
 
 func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -45,6 +73,7 @@ func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}
 
 type pluginDestination struct {
 	impl Destination
+	cs   []prometheus.Collector
 	l    hclog.Logger
 	ctx  context.Context
 }
@@ -54,5 +83,18 @@ func (p *pluginDestination) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interf
 }
 
 func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx}, nil
+	reg := prometheus.NewRegistry()
+
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	for _, c := range p.cs {
+		if err := reg.Register(c); err != nil {
+			return nil, err
+		}
+	}
+
+	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
 }

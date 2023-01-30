@@ -99,10 +99,10 @@ type Config struct {
 }
 
 // ConfigurePlugins configures the plugins found in path.
-func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string, strict bool) (map[string]plugin.Source, map[string]plugin.Destination, error) {
+func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string, strict bool) (map[string]plugin.SourceInternal, map[string]plugin.Destination, error) {
 	// Collect all of the named pluginPaths.
 	pluginPaths := make(map[string]string)
-	sources := make(map[string]plugin.Source)
+	sources := make(map[string]plugin.SourceInternal)
 	destinations := make(map[string]plugin.Destination)
 	pluginNames := make(map[string]struct{})
 	sourceNames := make(map[string]int)
@@ -149,7 +149,14 @@ workflow:
 		// Instantiate the source.
 		// Ensure a source is only instantiated once.
 		if _, ok := sources[w.Source]; !ok {
-			s, err := pm.NewSource(pluginPaths[c.Sources[sourceNames[w.Source]].Type], c.Sources[sourceNames[w.Source]].Config)
+			s, err := pm.NewSource(
+				pluginPaths[c.Sources[sourceNames[w.Source]].Type],
+				c.Sources[sourceNames[w.Source]].Config,
+				prometheus.Labels{
+					"workflow": w.Name,
+					"type":     c.Sources[sourceNames[w.Source]].Type,
+					"name":     c.Sources[sourceNames[w.Source]].Name,
+				})
 			if s == nil {
 				if strict {
 					return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", w.Source, err)
@@ -172,7 +179,14 @@ workflow:
 			// Ensure a destination is only instantiated once.
 			if _, ok := destinations[d]; !ok {
 				if _, ok := destinations[d]; !ok {
-					dd, err := pm.NewDestination(pluginPaths[c.Destinations[destinationNames[d]].Type], c.Destinations[destinationNames[d]].Config)
+					dd, err := pm.NewDestination(
+						pluginPaths[c.Destinations[destinationNames[d]].Type],
+						c.Destinations[destinationNames[d]].Config,
+						prometheus.Labels{
+							"workflow": w.Name,
+							"type":     c.Destinations[destinationNames[d]].Type,
+							"name":     c.Destinations[destinationNames[d]].Name,
+						})
 					if dd == nil {
 						if strict {
 							return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", d, err)
