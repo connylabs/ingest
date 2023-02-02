@@ -28,7 +28,7 @@ type Source interface {
 
 type SourceInternal interface {
 	Source
-	Gather() ([]*dto.MetricFamily, error)
+	prometheus.Gatherer
 }
 
 // A Destination represents an API to which objects should be uploaded.
