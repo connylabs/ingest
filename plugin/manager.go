@@ -189,7 +189,6 @@ func (pm *PluginManager) Stop() {
 }
 
 // Watch will return an error when a plugin can not be pinged anymore or return when ctx is done.
-// It will also collect metrics from the plugins.
 func (pm *PluginManager) Watch(ctx context.Context) error {
 	t := time.NewTicker(pm.Interval)
 	for {
