@@ -48,7 +48,7 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	all := make([][]*dto.MetricFamily, len(pm.sources))
+	all := make([][]*dto.MetricFamily, len(pm.sources)+len(pm.destination))
 	for i := range pm.sources {
 		i := i
 		g.Go(func() error {
@@ -94,7 +94,7 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 					m.Label = lps
 				}
 			}
-			all[i] = mfs
+			all[i+len(pm.sources)] = mfs
 			return nil
 		})
 	}
