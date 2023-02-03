@@ -9,7 +9,6 @@ import (
 	hplugin "github.com/hashicorp/go-plugin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	dto "github.com/prometheus/client_model/go"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -40,7 +39,7 @@ type Destination interface {
 // A Destination represents an API to which objects should be uploaded.
 type DestinationInternal interface {
 	Destination
-	Gather() ([]*dto.MetricFamily, error)
+	prometheus.Gatherer
 }
 
 type pluginSource struct {
