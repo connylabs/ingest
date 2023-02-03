@@ -33,12 +33,10 @@ type pluginSourceRPCServer struct {
 
 func (s *pluginSourceRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
 	m, err := s.reg.Gather()
-	if err != nil {
-		return err
-	}
+
 	*resp = m
 
-	return nil
+	return err
 }
 
 func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
@@ -119,7 +117,10 @@ func (s *pluginSourceRPCServer) Reset(args any, resp *any) error {
 	return s.Impl.Reset(s.ctx)
 }
 
-var _ SourceInternal = &pluginSourceRPC{}
+var (
+	_ Source              = &pluginSourceRPC{}
+	_ prometheus.Gatherer = &pluginSourceRPC{}
+)
 
 type pluginSourceRPC struct {
 	client *rpc.Client
@@ -200,12 +201,10 @@ var ErrNotConfigured = errors.New("not configured")
 
 func (s *pluginDestinationRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
 	m, err := s.reg.Gather()
-	if err != nil {
-		return err
-	}
+
 	*resp = m
 
-	return nil
+	return err
 }
 
 func (s *pluginDestinationRPCServer) Configure(c *map[string]any, resp *any) error {
@@ -259,7 +258,10 @@ func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) er
 	return nil
 }
 
-var _ Destination = &pluginDestinationRPC{}
+var (
+	_ Destination         = &pluginDestinationRPC{}
+	_ prometheus.Gatherer = &pluginDestinationRPC{}
+)
 
 type pluginDestinationRPC struct {
 	client *rpc.Client

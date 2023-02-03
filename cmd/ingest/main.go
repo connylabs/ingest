@@ -235,7 +235,7 @@ func Main() error {
 	return g.Run()
 }
 
-func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, sources map[string]plugin.SourceInternal, destinations map[string]plugin.Destination, workflows []config.Workflow, logger log.Logger, reg prometheus.Registerer) error {
+func runGroup(ctx context.Context, g *run.Group, q ingest.Queue, appFlags *flags, sources map[string]plugin.Source, destinations map[string]plugin.Destination, workflows []config.Workflow, logger log.Logger, reg prometheus.Registerer) error {
 	for _, w := range workflows {
 		logger = log.With(logger, "workflow", w.Name)
 		reg := prometheus.WrapRegistererWith(prometheus.Labels{

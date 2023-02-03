@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,8 +31,8 @@ type PluginManager struct {
 
 	ms ps.MetricStore
 
-	sources     []withClient[SourceInternal]
-	destination []withClient[DestinationInternal]
+	sources     []withClient[Source]
+	destination []withClient[Destination]
 	m           sync.Mutex
 }
 
@@ -48,10 +49,15 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 		i := i
 		g.Go(func() error {
 			h := make(map[string]*dto.MetricFamily)
-			mfs, err := pm.sources[i].t.Gather()
+			g, ok := pm.sources[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
+			}
+			mfs, err := g.Gather()
 			if err != nil {
 				return err
 			}
+			ts := time.Now()
 			for _, mf := range mfs {
 				h[mf.GetName()] = mf
 			}
@@ -65,8 +71,7 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 			pm.sources[i].labels["component"] = "source"
 			pm.ms.SubmitWriteRequest(ps.WriteRequest{
 				Labels:         pm.sources[i].labels,
-				Timestamp:      time.Now(), // TODO: what time to use?
-				Replace:        false,
+				Timestamp:      ts,
 				MetricFamilies: h,
 			})
 			return nil
@@ -76,10 +81,15 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 		i := i
 		g.Go(func() error {
 			h := make(map[string]*dto.MetricFamily)
-			mfs, err := pm.destination[i].t.Gather()
+			g, ok := pm.destination[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
+			}
+			mfs, err := g.Gather()
 			if err != nil {
 				return err
 			}
+			ts := time.Now()
 			for _, mf := range mfs {
 				h[mf.GetName()] = mf
 			}
@@ -93,8 +103,7 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 			pm.destination[i].labels["component"] = "destination"
 			pm.ms.SubmitWriteRequest(ps.WriteRequest{
 				Labels:         pm.destination[i].labels,
-				Timestamp:      time.Now(), // TODO: what time to use?
-				Replace:        false,
+				Timestamp:      ts,
 				MetricFamilies: h,
 			})
 			return nil
@@ -104,7 +113,7 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 }
 
 // NewDestination returns a new Destination interface from a plugin path and configuration.
-func (pm *PluginManager) NewDestination(path string, config map[string]any, labels prometheus.Labels) (DestinationInternal, error) {
+func (pm *PluginManager) NewDestination(path string, config map[string]any, labels prometheus.Labels) (Destination, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -125,13 +134,13 @@ func (pm *PluginManager) NewDestination(path string, config map[string]any, labe
 		return nil, fmt.Errorf("failed to configure destination: %w", err)
 	}
 
-	pm.destination = append(pm.destination, withClient[DestinationInternal]{t: d, c: c, path: path, config: config, labels: labels})
+	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config, labels: labels})
 
 	return d, nil
 }
 
 // NewSource returns a new Source interface from a plugin path and configuration.
-func (pm *PluginManager) NewSource(path string, config map[string]any, labels prometheus.Labels) (SourceInternal, error) {
+func (pm *PluginManager) NewSource(path string, config map[string]any, labels prometheus.Labels) (Source, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -150,7 +159,7 @@ func (pm *PluginManager) NewSource(path string, config map[string]any, labels pr
 		c.Kill()
 		return nil, fmt.Errorf("failed to configure source: %w", err)
 	}
-	pm.sources = append(pm.sources, withClient[SourceInternal]{t: s, c: c, path: path, config: config, labels: labels})
+	pm.sources = append(pm.sources, withClient[Source]{t: s, c: c, path: path, config: config, labels: labels})
 	return s, nil
 }
 
@@ -254,18 +263,18 @@ type withClient[T any] struct {
 	labels prometheus.Labels
 }
 
-func newDestination(cp hplugin.ClientProtocol) (DestinationInternal, error) {
+func newDestination(cp hplugin.ClientProtocol) (Destination, error) {
 	raw, err := cp.Dispense("destination")
 	if err != nil {
 		return nil, fmt.Errorf("failed to dispense destination: %w", err)
 	}
-	return raw.(DestinationInternal), nil
+	return raw.(Destination), nil
 }
 
-func newSource(cp hplugin.ClientProtocol) (SourceInternal, error) {
+func newSource(cp hplugin.ClientProtocol) (Source, error) {
 	raw, err := cp.Dispense("source")
 	if err != nil {
 		return nil, fmt.Errorf("failed to dispense source: %w", err)
 	}
-	return raw.(SourceInternal), nil
+	return raw.(Source), nil
 }

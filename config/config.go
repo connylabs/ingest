@@ -99,10 +99,10 @@ type Config struct {
 }
 
 // ConfigurePlugins configures the plugins found in path.
-func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string, strict bool) (map[string]plugin.SourceInternal, map[string]plugin.Destination, error) {
+func (c *Config) ConfigurePlugins(pm *plugin.PluginManager, paths []string, strict bool) (map[string]plugin.Source, map[string]plugin.Destination, error) {
 	// Collect all of the named pluginPaths.
 	pluginPaths := make(map[string]string)
-	sources := make(map[string]plugin.SourceInternal)
+	sources := make(map[string]plugin.Source)
 	destinations := make(map[string]plugin.Destination)
 	pluginNames := make(map[string]struct{})
 	sourceNames := make(map[string]int)

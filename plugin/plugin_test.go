@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +18,11 @@ import (
 )
 
 var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runtime.GOARCH)
+
+const expected = `# HELP noop show that the noop plugin can add its own collectors
+# TYPE noop gauge
+noop{noop="noop"} 1
+`
 
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
@@ -97,9 +104,18 @@ func TestNewPluginSource(t *testing.T) {
 		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
-		_, err = p.Gather()
+		g, ok := p.(prometheus.Gatherer)
+		require.True(t, ok)
 
+		m, err := g.Gather()
 		assert.NoError(t, err)
+		assert.NotEmpty(t, m)
+		err = testutil.GatherAndCompare(g, strings.NewReader(expected), "noop")
+		assert.NoError(t, err)
+
+		pr, err := testutil.GatherAndLint(g)
+		assert.NoError(t, err)
+		assert.Empty(t, pr)
 	})
 }
 
@@ -170,8 +186,17 @@ func TestPluginDestination(t *testing.T) {
 		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 
-		_, err = p.Gather()
+		g, ok := p.(prometheus.Gatherer)
+		require.True(t, ok)
 
+		m, err := g.Gather()
 		assert.NoError(t, err)
+		assert.NotEmpty(t, m)
+		err = testutil.GatherAndCompare(g, strings.NewReader(expected), "noop")
+		assert.NoError(t, err)
+
+		pr, err := testutil.GatherAndLint(g)
+		assert.NoError(t, err)
+		assert.Empty(t, pr)
 	})
 }

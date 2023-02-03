@@ -25,21 +25,10 @@ type Source interface {
 	Configure(map[string]any) error
 }
 
-type SourceInternal interface {
-	Source
-	prometheus.Gatherer
-}
-
 // A Destination represents an API to which objects should be uploaded.
 type Destination interface {
 	storage.Storage
 	Configure(map[string]any) error
-}
-
-// A Destination represents an API to which objects should be uploaded.
-type DestinationInternal interface {
-	Destination
-	prometheus.Gatherer
 }
 
 type pluginSource struct {
