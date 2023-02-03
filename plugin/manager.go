@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
 	hplugin "github.com/hashicorp/go-plugin"
@@ -19,9 +20,14 @@ import (
 )
 
 func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
+
 	return &PluginManager{
 		Interval: i,
 		ms:       ps.NewDiskMetricStore("", 0, nil, l),
+		l:        l,
 	}
 }
 
@@ -33,6 +39,7 @@ type PluginManager struct {
 
 	sources     []withClient[Source]
 	destination []withClient[Destination]
+	l           log.Logger
 	m           sync.Mutex
 }
 
@@ -48,68 +55,52 @@ func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
 	for i := range pm.sources {
 		i := i
 		g.Go(func() error {
-			h := make(map[string]*dto.MetricFamily)
-			g, ok := pm.sources[i].t.(prometheus.Gatherer)
-			if !ok {
-				return errors.New("failed to cast")
-			}
-			mfs, err := g.Gather()
-			if err != nil {
-				return err
-			}
-			ts := time.Now()
-			for _, mf := range mfs {
-				h[mf.GetName()] = mf
-			}
-			if err := pm.ms.Ready(); err != nil {
-				return fmt.Errorf("metrics store not ready: %w", err)
-			}
 			if pm.sources[i].labels == nil {
 				pm.sources[i].labels = prometheus.Labels{}
 			}
 			pm.sources[i].labels["instance"] = "plugin"
 			pm.sources[i].labels["component"] = "source"
-			pm.ms.SubmitWriteRequest(ps.WriteRequest{
-				Labels:         pm.sources[i].labels,
-				Timestamp:      ts,
-				MetricFamilies: h,
-			})
-			return nil
+			return pm.gatherFrom(pm.sources[i].t, pm.sources[i].labels)
 		})
 	}
 	for i := range pm.destination {
 		i := i
 		g.Go(func() error {
-			h := make(map[string]*dto.MetricFamily)
-			g, ok := pm.destination[i].t.(prometheus.Gatherer)
-			if !ok {
-				return errors.New("failed to cast")
-			}
-			mfs, err := g.Gather()
-			if err != nil {
-				return err
-			}
-			ts := time.Now()
-			for _, mf := range mfs {
-				h[mf.GetName()] = mf
-			}
-			if err := pm.ms.Ready(); err != nil {
-				return fmt.Errorf("metrics store not ready: %w", err)
-			}
 			if pm.destination[i].labels == nil {
 				pm.destination[i].labels = prometheus.Labels{}
 			}
 			pm.destination[i].labels["instance"] = "plugin"
 			pm.destination[i].labels["component"] = "destination"
-			pm.ms.SubmitWriteRequest(ps.WriteRequest{
-				Labels:         pm.destination[i].labels,
-				Timestamp:      ts,
-				MetricFamilies: h,
-			})
-			return nil
+			return pm.gatherFrom(pm.destination[i].t, pm.destination[i].labels)
 		})
 	}
+
 	return g.Wait().ErrorOrNil()
+}
+
+func (pm *PluginManager) gatherFrom(i any, labels prometheus.Labels) error {
+	h := make(map[string]*dto.MetricFamily)
+	g, ok := i.(prometheus.Gatherer)
+	if !ok {
+		return errors.New("failed to cast")
+	}
+	mfs, err := g.Gather()
+	if err != nil {
+		return err
+	}
+	ts := time.Now()
+	for _, mf := range mfs {
+		h[mf.GetName()] = mf
+	}
+	if err := pm.ms.Ready(); err != nil {
+		return fmt.Errorf("metrics store not ready: %w", err)
+	}
+	pm.ms.SubmitWriteRequest(ps.WriteRequest{
+		Labels:         labels,
+		Timestamp:      ts,
+		MetricFamilies: h,
+	})
+	return nil
 }
 
 // NewDestination returns a new Destination interface from a plugin path and configuration.
@@ -169,7 +160,9 @@ func (pm *PluginManager) Stop() {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	_ = pm.ms.Shutdown()
+	if err := pm.ms.Shutdown(); err != nil {
+		level.Error(pm.l).Log("msg", "failed to shut down metrics store", "err", err.Error())
+	}
 
 	g := &multierror.Group{}
 	f := func(c *hplugin.Client) func() error {
@@ -193,35 +186,53 @@ func (pm *PluginManager) Stop() {
 }
 
 // Watch will return an error when a plugin can not be pinged anymore or return when ctx is done.
+// It will also collect metrics from the plugins.
 func (pm *PluginManager) Watch(ctx context.Context) error {
 	t := time.NewTicker(pm.Interval)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-t.C:
-			for _, s := range pm.sources {
-				cp, err := s.c.Client()
-				if err != nil {
-					return fmt.Errorf("source client not initialized: %w", err)
-				}
-				if err := cp.Ping(); err != nil {
-					return fmt.Errorf("failed to ping source: %w", err)
-				}
+		case start := <-t.C:
+			g := multierror.Group{}
+			for i := range pm.sources {
+				i := i
+				g.Go(func() error {
+					cp, err := pm.sources[i].c.Client()
+					if err != nil {
+						return fmt.Errorf("source client not initialized: %w", err)
+					}
+					if err := cp.Ping(); err != nil {
+						return fmt.Errorf("failed to ping source: %w", err)
+					}
+					return nil
+				})
 			}
-			for _, d := range pm.destination {
-				cp, err := d.c.Client()
-				if err != nil {
-					return fmt.Errorf("destination client not initialized: %w", err)
-				}
-				if err := cp.Ping(); err != nil {
-					return fmt.Errorf("failed to ping destination: %w", err)
-				}
+			for i := range pm.destination {
+				i := i
+				g.Go(func() error {
+					cp, err := pm.destination[i].c.Client()
+					if err != nil {
+						return fmt.Errorf("destination client not initialized: %w", err)
+					}
+					if err := cp.Ping(); err != nil {
+						return fmt.Errorf("failed to ping destination: %w", err)
+					}
+					return nil
+				})
 			}
-			// TODO: put somewhere else?
-			if err := pm.GatherMetrics(ctx); err != nil {
+
+			level.Debug(pm.l).Log("msg", "successfully pinged all plugins", "duration", time.Since(start), "source plugins", len(pm.sources), "destination plugins", len(pm.destination))
+
+			err := g.Wait().ErrorOrNil()
+			if err != nil {
 				return err
 			}
+
+			if err := pm.GatherMetrics(ctx); err != nil {
+				level.Error(pm.l).Log("msg", "failed to gather metrics", "err", err.Error())
+			}
+
 		}
 	}
 }
