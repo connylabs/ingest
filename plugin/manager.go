@@ -16,7 +16,6 @@ import (
 	hplugin "github.com/hashicorp/go-plugin"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	ps "github.com/prometheus/pushgateway/storage"
 )
 
 func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
@@ -26,7 +25,6 @@ func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
 
 	return &PluginManager{
 		Interval: i,
-		ms:       ps.NewDiskMetricStore("", 0, nil, l),
 		l:        l,
 	}
 }
@@ -35,72 +33,81 @@ func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
 type PluginManager struct {
 	Interval time.Duration
 
-	ms ps.MetricStore
-
 	sources     []withClient[Source]
 	destination []withClient[Destination]
 	l           log.Logger
 	m           sync.Mutex
 }
 
-func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
-	return pm.ms.GetMetricFamilies(), pm.ms.Healthy()
+func ptr[T any](t T) *T {
+	return &t
 }
 
-func (pm *PluginManager) GatherMetrics(ctx context.Context) error {
+func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 	g := multierror.Group{}
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
+	all := make([][]*dto.MetricFamily, len(pm.sources))
 	for i := range pm.sources {
 		i := i
 		g.Go(func() error {
-			if pm.sources[i].labels == nil {
-				pm.sources[i].labels = prometheus.Labels{}
+			g, ok := pm.sources[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
 			}
-			pm.sources[i].labels["instance"] = "plugin"
-			pm.sources[i].labels["component"] = "source"
-			return pm.gatherFrom(pm.sources[i].t, pm.sources[i].labels)
+			mfs, err := g.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				for _, m := range mf.Metric {
+					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("source")}}
+					for k, v := range pm.sources[i].labels {
+						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+					}
+					m.Label = lps
+				}
+			}
+			all[i] = mfs
+			return nil
 		})
 	}
 	for i := range pm.destination {
 		i := i
 		g.Go(func() error {
-			if pm.destination[i].labels == nil {
-				pm.destination[i].labels = prometheus.Labels{}
+			g, ok := pm.destination[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
 			}
-			pm.destination[i].labels["instance"] = "plugin"
-			pm.destination[i].labels["component"] = "destination"
-			return pm.gatherFrom(pm.destination[i].t, pm.destination[i].labels)
+
+			mfs, err := g.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				for _, m := range mf.Metric {
+					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("destination")}}
+					for k, v := range pm.sources[i].labels {
+						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+					}
+					m.Label = lps
+				}
+			}
+			all[i] = mfs
+			return nil
 		})
 	}
 
-	return g.Wait().ErrorOrNil()
-}
+	if err := g.Wait().ErrorOrNil(); err != nil {
+		return nil, err
+	}
 
-func (pm *PluginManager) gatherFrom(i any, labels prometheus.Labels) error {
-	h := make(map[string]*dto.MetricFamily)
-	g, ok := i.(prometheus.Gatherer)
-	if !ok {
-		return errors.New("failed to cast")
+	merged := make([]*dto.MetricFamily, 0)
+	for _, m := range all {
+		merged = append(merged, m...)
 	}
-	mfs, err := g.Gather()
-	if err != nil {
-		return err
-	}
-	ts := time.Now()
-	for _, mf := range mfs {
-		h[mf.GetName()] = mf
-	}
-	if err := pm.ms.Ready(); err != nil {
-		return fmt.Errorf("metrics store not ready: %w", err)
-	}
-	pm.ms.SubmitWriteRequest(ps.WriteRequest{
-		Labels:         labels,
-		Timestamp:      ts,
-		MetricFamilies: h,
-	})
-	return nil
+	return merged, g.Wait().ErrorOrNil()
 }
 
 // NewDestination returns a new Destination interface from a plugin path and configuration.
@@ -159,10 +166,6 @@ func (pm *PluginManager) NewSource(path string, config map[string]any, labels pr
 func (pm *PluginManager) Stop() {
 	pm.m.Lock()
 	defer pm.m.Unlock()
-
-	if err := pm.ms.Shutdown(); err != nil {
-		level.Error(pm.l).Log("msg", "failed to shut down metrics store", "err", err.Error())
-	}
 
 	g := &multierror.Group{}
 	f := func(c *hplugin.Client) func() error {
@@ -227,10 +230,6 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 			err := g.Wait().ErrorOrNil()
 			if err != nil {
 				return err
-			}
-
-			if err := pm.GatherMetrics(ctx); err != nil {
-				level.Error(pm.l).Log("msg", "failed to gather metrics", "err", err.Error())
 			}
 
 		}

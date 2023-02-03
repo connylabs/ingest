@@ -583,8 +583,6 @@ github.com/prometheus/procfs v0.8.0 h1:ODq8ZFEaYeCaZOJlZZdJA2AbQR98dSHSM1KW/You5
 github.com/prometheus/procfs v0.8.0/go.mod h1:z7EfXMXOkbkqb9IINtpCn86r/to3BnA0uaxHdg830/4=
 github.com/prometheus/prom2json v1.3.1 h1:OogL5hsrJpLPz3jZ4LPz4sJRTtADzViCNRQoqrzUQvk=
 github.com/prometheus/prom2json v1.3.1/go.mod h1:A8Oy9aiQx4wrJY9ya1i4nHOySGmkVp5EO0aU1iSJR+g=
-github.com/prometheus/pushgateway v1.5.1 h1:F+meNVGklhdkJTrpt5l3pXLc86m6IG3+ZF3VfeOwubE=
-github.com/prometheus/pushgateway v1.5.1/go.mod h1:BcYcT8no4mdtnZxqpkXH3EMT0/Jf2nKgSlwu6GHirU4=
 github.com/rivo/tview v0.0.0-20211202162923-2a6de950f73b h1:EMgbQ+bOHWkl0Ptano8M0yrzVZkxans+Vfv7ox/EtO8=
 github.com/rivo/tview v0.0.0-20211202162923-2a6de950f73b/go.mod h1:WIfMkQNY+oq/mWwtsjOYHIZBuwthioY2srOmljJkTnk=
 github.com/rivo/uniseg v0.1.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=

@@ -520,9 +520,6 @@ github.com/prometheus/procfs/sysfs
 # github.com/prometheus/prom2json v1.3.1
 ## explicit; go 1.13
 github.com/prometheus/prom2json
-# github.com/prometheus/pushgateway v1.5.1
-## explicit; go 1.17
-github.com/prometheus/pushgateway/storage
 # github.com/rivo/tview v0.0.0-20211202162923-2a6de950f73b
 ## explicit; go 1.12
 github.com/rivo/tview
