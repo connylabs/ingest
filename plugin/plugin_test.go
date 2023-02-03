@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,14 +19,19 @@ import (
 
 var noopPath string = fmt.Sprintf("../bin/plugin/%s/%s/noop", runtime.GOOS, runtime.GOARCH)
 
+const expected = `# HELP noop show that the noop plugin can add its own collectors
+# TYPE noop gauge
+noop{noop="noop"} 1
+`
+
 func TestNewPluginSource(t *testing.T) {
 	t.Run("Next and Reset methods", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		err = p.Configure(nil)
@@ -52,12 +59,12 @@ func TestNewPluginSource(t *testing.T) {
 	})
 
 	t.Run("Download and CleanUp", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		err = p.Configure(nil)
@@ -79,24 +86,45 @@ func TestNewPluginSource(t *testing.T) {
 	})
 
 	t.Run("Configure", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 
-		p, err := pm.NewSource(noopPath, nil)
+		p, err := pm.NewSource(noopPath, nil, nil)
 		require.NoError(t, err)
 
 		assert.Error(t, p.Configure(map[string]any{"error": "an error"}))
 		assert.Equal(t, "an error", p.Configure(map[string]any{"error": "an error"}).Error())
 		assert.NoError(t, p.Configure(nil))
 	})
+
+	t.Run("Gather", func(t *testing.T) {
+		pm := NewPluginManager(0, nil)
+		t.Cleanup(pm.Stop)
+
+		p, err := pm.NewSource(noopPath, nil, nil)
+		require.NoError(t, err)
+
+		g, ok := p.(prometheus.Gatherer)
+		require.True(t, ok)
+
+		m, err := g.Gather()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, m)
+		err = testutil.GatherAndCompare(g, strings.NewReader(expected), "noop")
+		assert.NoError(t, err)
+
+		pr, err := testutil.GatherAndLint(g)
+		assert.NoError(t, err)
+		assert.Empty(t, pr)
+	})
 }
 
 func TestPluginDestination(t *testing.T) {
 	t.Run("Configure", func(t *testing.T) {
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -106,11 +134,11 @@ func TestPluginDestination(t *testing.T) {
 
 	t.Run("Stat", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -127,11 +155,11 @@ func TestPluginDestination(t *testing.T) {
 
 	t.Run("Store", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		pm := &PluginManager{}
+		pm := NewPluginManager(0, nil)
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		p, err := pm.NewDestination(noopPath, nil)
+		p, err := pm.NewDestination(noopPath, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, p)
 
@@ -149,5 +177,26 @@ func TestPluginDestination(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Nil(t, u)
+	})
+
+	t.Run("Gather", func(t *testing.T) {
+		pm := NewPluginManager(0, nil)
+		t.Cleanup(pm.Stop)
+
+		p, err := pm.NewDestination(noopPath, nil, nil)
+		require.NoError(t, err)
+
+		g, ok := p.(prometheus.Gatherer)
+		require.True(t, ok)
+
+		m, err := g.Gather()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, m)
+		err = testutil.GatherAndCompare(g, strings.NewReader(expected), "noop")
+		assert.NoError(t, err)
+
+		pr, err := testutil.GatherAndLint(g)
+		assert.NoError(t, err)
+		assert.Empty(t, pr)
 	})
 }

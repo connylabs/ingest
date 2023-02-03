@@ -11,6 +11,8 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -21,6 +23,7 @@ const DefaultTimeOut = 5 * time.Second
 type pluginSourceRPCServer struct {
 	Impl Source
 
+	reg        *prometheus.Registry
 	l          hclog.Logger
 	mb         *hplugin.MuxBroker
 	ctx        context.Context
@@ -28,7 +31,16 @@ type pluginSourceRPCServer struct {
 	timeOut    time.Duration
 }
 
+func (s *pluginSourceRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
+	m, err := s.reg.Gather()
+
+	*resp = m
+
+	return err
+}
+
 func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
+	s.l.Error("this is the server")
 	if !s.configured {
 		return ErrNotConfigured
 	}
@@ -105,7 +117,10 @@ func (s *pluginSourceRPCServer) Reset(args any, resp *any) error {
 	return s.Impl.Reset(s.ctx)
 }
 
-var _ Source = &pluginSourceRPC{}
+var (
+	_ Source              = &pluginSourceRPC{}
+	_ prometheus.Gatherer = &pluginSourceRPC{}
+)
 
 type pluginSourceRPC struct {
 	client *rpc.Client
@@ -116,20 +131,26 @@ func (p *pluginSourceRPC) call(serviceMethod string, args any, reply any) (err e
 	return mapErrMsg(p.client.Call(serviceMethod, args, reply))
 }
 
+func (c *pluginSourceRPC) Gather() (resp []*dto.MetricFamily, err error) {
+	err = c.call("Plugin.Gather", new(any), &resp)
+
+	return
+}
+
 func (c *pluginSourceRPC) CleanUp(ctx context.Context, s ingest.Codec) error {
-	return mapErrMsg(c.call("Plugin.CleanUp", s, new(any)))
+	return c.call("Plugin.CleanUp", s, new(any))
 }
 
 func (c *pluginSourceRPC) Configure(conf map[string]any) error {
 	if conf == nil {
 		conf = map[string]any{}
 	}
-	return mapErrMsg(c.call("Plugin.Configure", &conf, new(any)))
+	return c.call("Plugin.Configure", &conf, new(any))
 }
 
 func (c *pluginSourceRPC) Download(ctx context.Context, s ingest.Codec) (*ingest.Object, error) {
 	var resp DownloadResponse
-	if err := mapErrMsg(c.call("Plugin.Download", s, &resp)); err != nil {
+	if err := c.call("Plugin.Download", s, &resp); err != nil {
 		return nil, err
 	}
 	con, err := c.mb.Dial(resp.Reader)
@@ -168,6 +189,7 @@ type DownloadResponse struct {
 type pluginDestinationRPCServer struct {
 	Impl Destination
 
+	reg        *prometheus.Registry
 	l          hclog.Logger
 	mb         *hplugin.MuxBroker
 	ctx        context.Context
@@ -176,6 +198,14 @@ type pluginDestinationRPCServer struct {
 }
 
 var ErrNotConfigured = errors.New("not configured")
+
+func (s *pluginDestinationRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
+	m, err := s.reg.Gather()
+
+	*resp = m
+
+	return err
+}
 
 func (s *pluginDestinationRPCServer) Configure(c *map[string]any, resp *any) error {
 	s.timeOut = DefaultTimeOut
@@ -228,7 +258,10 @@ func (s *pluginDestinationRPCServer) Store(args *StoreRequest, resp *url.URL) er
 	return nil
 }
 
-var _ Destination = &pluginDestinationRPC{}
+var (
+	_ Destination         = &pluginDestinationRPC{}
+	_ prometheus.Gatherer = &pluginDestinationRPC{}
+)
 
 type pluginDestinationRPC struct {
 	client *rpc.Client
@@ -240,6 +273,12 @@ func (p *pluginDestinationRPC) call(serviceMethod string, args any, reply any) (
 	if err != nil && err.Error() == ErrNotConfigured.Error() {
 		err = ErrNotConfigured
 	}
+
+	return
+}
+
+func (c *pluginDestinationRPC) Gather() (resp []*dto.MetricFamily, err error) {
+	err = c.call("Plugin.Gather", new(any), &resp)
 
 	return
 }

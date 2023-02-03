@@ -2,16 +2,32 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"sync"
 	"time"
 
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
 	hplugin "github.com/hashicorp/go-plugin"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
+
+func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
+
+	return &PluginManager{
+		Interval: i,
+		l:        l,
+	}
+}
 
 // PluginManager can start new plugins watch and kill all plugins.
 type PluginManager struct {
@@ -19,11 +35,83 @@ type PluginManager struct {
 
 	sources     []withClient[Source]
 	destination []withClient[Destination]
+	l           log.Logger
 	m           sync.Mutex
 }
 
+func ptr[T any](t T) *T {
+	return &t
+}
+
+func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
+	g := multierror.Group{}
+	pm.m.Lock()
+	defer pm.m.Unlock()
+
+	all := make([][]*dto.MetricFamily, len(pm.sources))
+	for i := range pm.sources {
+		i := i
+		g.Go(func() error {
+			g, ok := pm.sources[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
+			}
+			mfs, err := g.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				for _, m := range mf.Metric {
+					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("source")}}
+					for k, v := range pm.sources[i].labels {
+						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+					}
+					m.Label = lps
+				}
+			}
+			all[i] = mfs
+			return nil
+		})
+	}
+	for i := range pm.destination {
+		i := i
+		g.Go(func() error {
+			g, ok := pm.destination[i].t.(prometheus.Gatherer)
+			if !ok {
+				return errors.New("failed to cast")
+			}
+
+			mfs, err := g.Gather()
+			if err != nil {
+				return err
+			}
+			for _, mf := range mfs {
+				for _, m := range mf.Metric {
+					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("destination")}}
+					for k, v := range pm.sources[i].labels {
+						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+					}
+					m.Label = lps
+				}
+			}
+			all[i] = mfs
+			return nil
+		})
+	}
+
+	if err := g.Wait().ErrorOrNil(); err != nil {
+		return nil, err
+	}
+
+	merged := make([]*dto.MetricFamily, 0)
+	for _, m := range all {
+		merged = append(merged, m...)
+	}
+	return merged, g.Wait().ErrorOrNil()
+}
+
 // NewDestination returns a new Destination interface from a plugin path and configuration.
-func (pm *PluginManager) NewDestination(path string, config map[string]any) (Destination, error) {
+func (pm *PluginManager) NewDestination(path string, config map[string]any, labels prometheus.Labels) (Destination, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -44,13 +132,13 @@ func (pm *PluginManager) NewDestination(path string, config map[string]any) (Des
 		return nil, fmt.Errorf("failed to configure destination: %w", err)
 	}
 
-	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config})
+	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config, labels: labels})
 
 	return d, nil
 }
 
 // NewSource returns a new Source interface from a plugin path and configuration.
-func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, error) {
+func (pm *PluginManager) NewSource(path string, config map[string]any, labels prometheus.Labels) (Source, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -69,7 +157,7 @@ func (pm *PluginManager) NewSource(path string, config map[string]any) (Source, 
 		c.Kill()
 		return nil, fmt.Errorf("failed to configure source: %w", err)
 	}
-	pm.sources = append(pm.sources, withClient[Source]{t: s, c: c, path: path, config: config})
+	pm.sources = append(pm.sources, withClient[Source]{t: s, c: c, path: path, config: config, labels: labels})
 	return s, nil
 }
 
@@ -107,25 +195,42 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-t.C:
-			for _, s := range pm.sources {
-				cp, err := s.c.Client()
-				if err != nil {
-					return fmt.Errorf("source client not initialized: %w", err)
-				}
-				if err := cp.Ping(); err != nil {
-					return fmt.Errorf("failed to ping source: %w", err)
-				}
+		case start := <-t.C:
+			g := multierror.Group{}
+			for i := range pm.sources {
+				i := i
+				g.Go(func() error {
+					cp, err := pm.sources[i].c.Client()
+					if err != nil {
+						return fmt.Errorf("source client not initialized: %w", err)
+					}
+					if err := cp.Ping(); err != nil {
+						return fmt.Errorf("failed to ping source: %w", err)
+					}
+					return nil
+				})
 			}
-			for _, d := range pm.destination {
-				cp, err := d.c.Client()
-				if err != nil {
-					return fmt.Errorf("destination client not initialized: %w", err)
-				}
-				if err := cp.Ping(); err != nil {
-					return fmt.Errorf("failed to ping destination: %w", err)
-				}
+			for i := range pm.destination {
+				i := i
+				g.Go(func() error {
+					cp, err := pm.destination[i].c.Client()
+					if err != nil {
+						return fmt.Errorf("destination client not initialized: %w", err)
+					}
+					if err := cp.Ping(); err != nil {
+						return fmt.Errorf("failed to ping destination: %w", err)
+					}
+					return nil
+				})
 			}
+
+			level.Debug(pm.l).Log("msg", "successfully pinged all plugins", "duration", time.Since(start), "source plugins", len(pm.sources), "destination plugins", len(pm.destination))
+
+			err := g.Wait().ErrorOrNil()
+			if err != nil {
+				return err
+			}
+
 		}
 	}
 }
@@ -164,6 +269,7 @@ type withClient[T any] struct {
 	path   string
 	c      *hplugin.Client
 	config map[string]any
+	labels prometheus.Labels
 }
 
 func newDestination(cp hplugin.ClientProtocol) (Destination, error) {

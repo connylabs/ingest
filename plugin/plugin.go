@@ -7,6 +7,8 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -31,12 +33,26 @@ type Destination interface {
 
 type pluginSource struct {
 	impl Source
+	cs   []prometheus.Collector
 	l    hclog.Logger
 	ctx  context.Context
 }
 
 func (p *pluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx}, nil
+	reg := prometheus.NewRegistry()
+
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	for _, c := range p.cs {
+		if err := reg.Register(c); err != nil {
+			return nil, err
+		}
+	}
+
+	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
 }
 
 func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -45,6 +61,7 @@ func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}
 
 type pluginDestination struct {
 	impl Destination
+	cs   []prometheus.Collector
 	l    hclog.Logger
 	ctx  context.Context
 }
@@ -54,5 +71,18 @@ func (p *pluginDestination) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interf
 }
 
 func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx}, nil
+	reg := prometheus.NewRegistry()
+
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	for _, c := range p.cs {
+		if err := reg.Register(c); err != nil {
+			return nil, err
+		}
+	}
+
+	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
 }

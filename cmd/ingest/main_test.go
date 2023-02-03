@@ -261,7 +261,7 @@ workflows:
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pm := &plugin.PluginManager{}
+	pm := plugin.NewPluginManager(0, nil)
 	t.Cleanup(pm.Stop)
 	sources, destintations, err := c.ConfigurePlugins(pm, []string{fmt.Sprintf("../../bin/plugin/%s/%s", runtime.GOOS, runtime.GOARCH)}, true)
 	require.NoError(t, err)
