@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mitchellh/mapstructure"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 
@@ -23,6 +24,7 @@ var _ plugin.Destination = &destination{}
 
 type destination struct {
 	storage.Storage
+	reg prometheus.Registerer
 }
 
 // NewDestination implements the Plugin interface.
@@ -44,7 +46,7 @@ func (d *destination) Configure(config map[string]interface{}) error {
 		return fmt.Errorf("failed to create drive service: %w", err)
 	}
 
-	drS, err := dstorage.New(dc.Folder, ds, plugin.DefaultLogger)
+	drS, err := dstorage.New(dc.Folder, ds, plugin.DefaultLogger, d.reg)
 	if err != nil {
 		return fmt.Errorf("failed to create drive storage: %w", err)
 	}
@@ -53,5 +55,5 @@ func (d *destination) Configure(config map[string]interface{}) error {
 }
 
 func main() {
-	plugin.RunPluginServer(nil, &destination{})
+	plugin.RunPluginServer(nil, &destination{}, prometheus.NewPedanticRegistry())
 }

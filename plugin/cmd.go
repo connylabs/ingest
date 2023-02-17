@@ -18,7 +18,7 @@ const (
 	PluginMagicCookieKey       = "INGEST_PLUGIN"
 )
 
-func RunPluginServer(s Source, d Destination, collectors ...prometheus.Collector) {
+func RunPluginServer(s Source, d Destination, g prometheus.Gatherer) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -38,13 +38,13 @@ func RunPluginServer(s Source, d Destination, collectors ...prometheus.Collector
 		"source": &pluginSource{
 			impl: s,
 			ctx:  ctx,
-			cs:   collectors,
+			g:    g,
 			l:    logger.With("component", "source"),
 		},
 		"destination": &pluginDestination{
 			impl: d,
 			ctx:  ctx,
-			cs:   collectors,
+			g:    g,
 			l:    logger.With("component", "destination"),
 		},
 	}
