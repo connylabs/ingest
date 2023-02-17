@@ -23,7 +23,7 @@ const DefaultTimeOut = 5 * time.Second
 type pluginSourceRPCServer struct {
 	Impl Source
 
-	reg        *prometheus.Registry
+	g          prometheus.Gatherer
 	l          hclog.Logger
 	mb         *hplugin.MuxBroker
 	ctx        context.Context
@@ -32,7 +32,7 @@ type pluginSourceRPCServer struct {
 }
 
 func (s *pluginSourceRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
-	m, err := s.reg.Gather()
+	m, err := s.g.Gather()
 
 	*resp = m
 
@@ -189,7 +189,7 @@ type DownloadResponse struct {
 type pluginDestinationRPCServer struct {
 	Impl Destination
 
-	reg        *prometheus.Registry
+	g          prometheus.Gatherer
 	l          hclog.Logger
 	mb         *hplugin.MuxBroker
 	ctx        context.Context
@@ -200,7 +200,7 @@ type pluginDestinationRPCServer struct {
 var ErrNotConfigured = errors.New("not configured")
 
 func (s *pluginDestinationRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error {
-	m, err := s.reg.Gather()
+	m, err := s.g.Gather()
 
 	*resp = m
 

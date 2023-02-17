@@ -33,7 +33,7 @@ type Destination interface {
 
 type pluginSource struct {
 	impl Source
-	cs   []prometheus.Collector
+	g    prometheus.Gatherer
 	l    hclog.Logger
 	ctx  context.Context
 }
@@ -46,13 +46,12 @@ func (p *pluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 
-	for _, c := range p.cs {
-		if err := reg.Register(c); err != nil {
-			return nil, err
-		}
+	var g prometheus.Gatherer = reg
+	if p.g != nil {
+		g = prometheus.Gatherers{g, p.g}
 	}
 
-	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
+	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
 }
 
 func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -61,7 +60,7 @@ func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}
 
 type pluginDestination struct {
 	impl Destination
-	cs   []prometheus.Collector
+	g    prometheus.Gatherer
 	l    hclog.Logger
 	ctx  context.Context
 }
@@ -78,11 +77,10 @@ func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 
-	for _, c := range p.cs {
-		if err := reg.Register(c); err != nil {
-			return nil, err
-		}
+	var g prometheus.Gatherer = reg
+	if p.g != nil {
+		g = prometheus.Gatherers{g, p.g}
 	}
 
-	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, reg: reg}, nil
+	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
 }
