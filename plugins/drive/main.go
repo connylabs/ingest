@@ -55,5 +55,6 @@ func (d *destination) Configure(config map[string]interface{}) error {
 }
 
 func main() {
-	plugin.RunPluginServer(nil, &destination{}, prometheus.NewPedanticRegistry())
+	reg := prometheus.NewRegistry()
+	plugin.RunPluginServer(nil, &destination{reg: reg}, reg)
 }
