@@ -52,7 +52,7 @@ func TestPluginManagerWatch(t *testing.T) {
 		t.Cleanup(pm.Stop)
 		t.Cleanup(cancel)
 
-		_, err := pm.NewSource(noopPath, nil, prometheus.Labels{"type": "test"})
+		_, err := pm.NewSource(noopPath, nil, prometheus.Labels{"plugin": "test"})
 		require.NoError(t, err)
 
 		go func() {
