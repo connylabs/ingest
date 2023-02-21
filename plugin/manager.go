@@ -33,10 +33,10 @@ func NewPluginManager(i time.Duration, l log.Logger) *PluginManager {
 type PluginManager struct {
 	Interval time.Duration
 
-	sources     []withClient[Source]
-	destination []withClient[Destination]
-	l           log.Logger
-	m           sync.Mutex
+	sources      []withClient[Source]
+	destinations []withClient[Destination]
+	l            log.Logger
+	m            sync.Mutex
 }
 
 func ptr[T any](t T) *T {
@@ -48,7 +48,7 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
-	all := make([][]*dto.MetricFamily, len(pm.sources)+len(pm.destination))
+	all := make([][]*dto.MetricFamily, len(pm.sources)+len(pm.destinations))
 	for i := range pm.sources {
 		i := i
 		g.Go(func() error {
@@ -73,10 +73,10 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 			return nil
 		})
 	}
-	for i := range pm.destination {
+	for i := range pm.destinations {
 		i := i
 		g.Go(func() error {
-			g, ok := pm.destination[i].t.(prometheus.Gatherer)
+			g, ok := pm.destinations[i].t.(prometheus.Gatherer)
 			if !ok {
 				return errors.New("failed to cast")
 			}
@@ -88,7 +88,7 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 			for _, mf := range mfs {
 				for _, m := range mf.Metric {
 					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("destination")}}
-					for k, v := range pm.sources[i].labels {
+					for k, v := range pm.destinations[i].labels {
 						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
 					}
 					m.Label = append(m.Label, lps...)
@@ -132,7 +132,7 @@ func (pm *PluginManager) NewDestination(path string, config map[string]any, labe
 		return nil, fmt.Errorf("failed to configure destination: %w", err)
 	}
 
-	pm.destination = append(pm.destination, withClient[Destination]{t: d, c: c, path: path, config: config, labels: labels})
+	pm.destinations = append(pm.destinations, withClient[Destination]{t: d, c: c, path: path, config: config, labels: labels})
 
 	return d, nil
 }
@@ -177,14 +177,14 @@ func (pm *PluginManager) Stop() {
 	for _, c := range pm.sources {
 		g.Go(f(c.c))
 	}
-	for _, c := range pm.destination {
+	for _, c := range pm.destinations {
 		g.Go(f(c.c))
 	}
 	if err := g.Wait().ErrorOrNil(); err != nil {
 		// We can panic here because none of the go routines in the group return errors.
 		panic(err)
 	}
-	pm.destination = nil
+	pm.destinations = nil
 	pm.sources = nil
 }
 
@@ -210,10 +210,10 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 					return nil
 				})
 			}
-			for i := range pm.destination {
+			for i := range pm.destinations {
 				i := i
 				g.Go(func() error {
-					cp, err := pm.destination[i].c.Client()
+					cp, err := pm.destinations[i].c.Client()
 					if err != nil {
 						return fmt.Errorf("destination client not initialized: %w", err)
 					}
@@ -224,7 +224,7 @@ func (pm *PluginManager) Watch(ctx context.Context) error {
 				})
 			}
 
-			level.Debug(pm.l).Log("msg", "successfully pinged all plugins", "duration", time.Since(start), "source plugins", len(pm.sources), "destination plugins", len(pm.destination))
+			level.Debug(pm.l).Log("msg", "successfully pinged all plugins", "duration", time.Since(start), "source plugins", len(pm.sources), "destination plugins", len(pm.destinations))
 
 			err := g.Wait().ErrorOrNil()
 			if err != nil {
