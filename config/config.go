@@ -154,7 +154,7 @@ workflow:
 				c.Sources[sourceNames[w.Source]].Config,
 				prometheus.Labels{
 					"workflow": w.Name,
-					"type":     c.Sources[sourceNames[w.Source]].Type,
+					"plugin":   c.Sources[sourceNames[w.Source]].Type,
 					"name":     c.Sources[sourceNames[w.Source]].Name,
 				})
 			if err != nil {
@@ -184,7 +184,7 @@ workflow:
 						c.Destinations[destinationNames[d]].Config,
 						prometheus.Labels{
 							"workflow": w.Name,
-							"type":     c.Destinations[destinationNames[d]].Type,
+							"plugin":   c.Destinations[destinationNames[d]].Type,
 							"name":     c.Destinations[destinationNames[d]].Name,
 						})
 					if err != nil {
