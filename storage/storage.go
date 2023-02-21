@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"time"
@@ -42,7 +43,7 @@ func (i instrumentedStorage) Stat(ctx context.Context, element ingest.Codec) (*O
 	oi, err := i.Storage.Stat(ctx, element)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("stat", "success").Inc()
-	} else {
+	} else if !errors.Is(err, context.Canceled) {
 		i.operationsTotal.WithLabelValues("stat", "error").Inc()
 	}
 	return oi, err
@@ -57,7 +58,7 @@ func (i instrumentedStorage) Store(ctx context.Context, element ingest.Codec, ob
 	u, err := i.Storage.Store(ctx, element, obj)
 	if err == nil || os.IsNotExist(err) {
 		i.operationsTotal.WithLabelValues("store", "success").Inc()
-	} else {
+	} else if !errors.Is(err, context.Canceled) {
 		i.operationsTotal.WithLabelValues("store", "error").Inc()
 	}
 	return u, err

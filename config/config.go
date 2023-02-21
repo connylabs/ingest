@@ -157,7 +157,7 @@ workflow:
 					"type":     c.Sources[sourceNames[w.Source]].Type,
 					"name":     c.Sources[sourceNames[w.Source]].Name,
 				})
-			if s == nil {
+			if err != nil {
 				if strict {
 					return nil, nil, fmt.Errorf("cannot instantiate source %q: %w", w.Source, err)
 				}
@@ -187,7 +187,7 @@ workflow:
 							"type":     c.Destinations[destinationNames[d]].Type,
 							"name":     c.Destinations[destinationNames[d]].Name,
 						})
-					if dd == nil {
+					if err != nil {
 						if strict {
 							return nil, nil, fmt.Errorf("cannot instantiate destination %q: %w", d, err)
 						}

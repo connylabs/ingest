@@ -32,7 +32,7 @@ func TestMultiStorageStat(t *testing.T) {
 			storages: func(t *testing.T) []storage.Storage {
 				return []storage.Storage{
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), nil).Once(),
 					),
 				}
@@ -44,7 +44,7 @@ func TestMultiStorageStat(t *testing.T) {
 			storages: func(t *testing.T) []storage.Storage {
 				return []storage.Storage{
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Once(),
 					),
 				}
@@ -57,16 +57,16 @@ func TestMultiStorageStat(t *testing.T) {
 			storages: func(t *testing.T) []storage.Storage {
 				return []storage.Storage{
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
-						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Once(),
+						Stat(mock.Anything, codec).
+						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Maybe(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
-						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Once(),
+						Stat(mock.Anything, codec).
+						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Maybe(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
-						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Once(),
+						Stat(mock.Anything, codec).
+						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Maybe(),
 					),
 				}
 			},
@@ -78,15 +78,15 @@ func TestMultiStorageStat(t *testing.T) {
 			storages: func(t *testing.T) []storage.Storage {
 				return []storage.Storage{
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
-						Return((*storage.ObjectInfo)(nil), nil).Once(),
+						Stat(mock.Anything, codec).
+						Return((*storage.ObjectInfo)(nil), nil).Maybe(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
-						Return((*storage.ObjectInfo)(nil), nil).Once(),
+						Stat(mock.Anything, codec).
+						Return((*storage.ObjectInfo)(nil), nil).Maybe(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), os.ErrNotExist).Once(),
 					),
 				}
@@ -99,15 +99,15 @@ func TestMultiStorageStat(t *testing.T) {
 			storages: func(t *testing.T) []storage.Storage {
 				return []storage.Storage{
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), nil).Once(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), nil).Once(),
 					),
 					callToStorage(mocks.NewStorage(t).EXPECT().
-						Stat(context.Background(), codec).
+						Stat(mock.Anything, codec).
 						Return((*storage.ObjectInfo)(nil), nil).Once(),
 					),
 				}
