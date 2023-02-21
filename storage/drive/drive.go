@@ -32,15 +32,17 @@ func New(folder string, service *drive.Service, l hclog.Logger, r prometheus.Reg
 		return nil, errors.New("no folder was specified")
 	}
 	ds := &driveStorage{s: service, l: l}
+
+	ds.gdcot = promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_google_drive_client_operations_total",
+		Help: "The number of operations performed by the Google Drive client.",
+	}, []string{"operation", "result"})
+
 	f, err := ds.find(context.Background(), "", parts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find folder: %w", err)
 	}
 	ds.p = f.Id
-	ds.gdcot = promauto.With(r).NewCounterVec(prometheus.CounterOpts{
-		Name: "ingest_google_drive_client_operations_total",
-		Help: "The number of operations performed by the Google Drive client.",
-	}, []string{"operation", "result"})
 
 	for _, o := range []string{"find", "list", "create"} {
 		for _, r := range []string{"error", "success"} {
