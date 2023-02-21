@@ -20,7 +20,8 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.
 		return nil, os.ErrNotExist
 	}
 	var o0 *storage.ObjectInfo
-	ch := make(chan error, len(m))
+	ctx, cancel := context.WithCancel(ctx)
+	ch := make(chan error)
 	for i := range m {
 		go func(i int) {
 			o, err := m[i].Stat(ctx, element)
@@ -39,14 +40,16 @@ func (m multiStorage) Stat(ctx context.Context, element ingest.Codec) (*storage.
 			if os.IsNotExist(e) {
 				isNotExist = true
 			}
+			cancel()
 		}
 		i++
 		if i == len(m) {
 			close(ch)
 		}
 	}
+	cancel()
 	if isNotExist {
-		return o0, os.ErrNotExist
+		return nil, os.ErrNotExist
 	}
 	return o0, err.Err()
 }
