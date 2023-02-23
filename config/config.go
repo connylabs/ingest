@@ -153,9 +153,9 @@ workflow:
 				pluginPaths[c.Sources[sourceNames[w.Source]].Type],
 				c.Sources[sourceNames[w.Source]].Config,
 				prometheus.Labels{
-					"workflow": w.Name,
-					"plugin":   c.Sources[sourceNames[w.Source]].Type,
-					"name":     c.Sources[sourceNames[w.Source]].Name,
+					"component": "source",
+					"plugin":    c.Sources[sourceNames[w.Source]].Type,
+					"name":      c.Sources[sourceNames[w.Source]].Name,
 				})
 			if err != nil {
 				if strict {
@@ -183,9 +183,9 @@ workflow:
 						pluginPaths[c.Destinations[destinationNames[d]].Type],
 						c.Destinations[destinationNames[d]].Config,
 						prometheus.Labels{
-							"workflow": w.Name,
-							"plugin":   c.Destinations[destinationNames[d]].Type,
-							"name":     c.Destinations[destinationNames[d]].Name,
+							"component": "destination",
+							"plugin":    c.Destinations[destinationNames[d]].Type,
+							"name":      c.Destinations[destinationNames[d]].Name,
 						})
 					if err != nil {
 						if strict {
