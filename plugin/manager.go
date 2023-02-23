@@ -62,11 +62,9 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 			}
 			for _, mf := range mfs {
 				for _, m := range mf.Metric {
-					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("source")}}
 					for k, v := range pm.sources[i].labels {
-						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+						m.Label = append(m.Label, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
 					}
-					m.Label = append(m.Label, lps...)
 				}
 			}
 			all[i] = mfs
@@ -87,11 +85,9 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 			}
 			for _, mf := range mfs {
 				for _, m := range mf.Metric {
-					lps := []*dto.LabelPair{{Name: ptr("component"), Value: ptr("destination")}}
 					for k, v := range pm.destinations[i].labels {
-						lps = append(lps, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
+						m.Label = append(m.Label, &dto.LabelPair{Name: ptr(k), Value: ptr(v)})
 					}
-					m.Label = append(m.Label, lps...)
 				}
 			}
 			all[i+len(pm.sources)] = mfs
