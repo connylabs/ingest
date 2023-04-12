@@ -51,7 +51,14 @@ func (p *pluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
 		g = prometheus.Gatherers{g, p.g}
 	}
 
-	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
+	cv := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "plugin_rpc_calls_total",
+		Help: "The total number of rpc calls",
+	}, []string{"rpc_method", "result"})
+	reg.MustRegister(cv)
+	serv := &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}
+
+	return &instrumentedPluginSourceRPCServer{pluginSourceRPCServer: serv, cv: cv}, nil
 }
 
 func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -82,5 +89,12 @@ func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
 		g = prometheus.Gatherers{g, p.g}
 	}
 
-	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
+	cv := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "plugin_rpc_calls_total",
+		Help: "The total number of rpc calls",
+	}, []string{"rpc_method", "result"})
+	reg.MustRegister(cv)
+	serv := &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}
+
+	return &instrumentedPluginDestinationRPCServer{pluginDestinationRPCServer: serv, cv: cv}, nil
 }
