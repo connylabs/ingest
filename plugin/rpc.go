@@ -40,7 +40,6 @@ func (s *pluginSourceRPCServer) Gather(c *any, resp *[]*dto.MetricFamily) error 
 }
 
 func (s *pluginSourceRPCServer) CleanUp(c *ingest.Codec, resp *any) error {
-	s.l.Error("this is the server")
 	if !s.configured {
 		return ErrNotConfigured
 	}

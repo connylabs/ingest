@@ -176,5 +176,5 @@ func (s *source) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, 
 }
 
 func main() {
-	iplugin.RunPluginServer(&source{}, &destination{}, nil)
+	iplugin.RunPluginServer(&source{}, &destination{})
 }

@@ -15,5 +15,5 @@ func main() {
 	})
 	reg.MustRegister(c)
 	c.Set(1)
-	iplugin.RunPluginServer(iplugin.NewNoopSource(iplugin.DefaultLogger), iplugin.NewNoopDestination(iplugin.DefaultLogger), reg)
+	iplugin.RunPluginServer(iplugin.NewNoopSource(iplugin.DefaultLogger), iplugin.NewNoopDestination(iplugin.DefaultLogger), iplugin.WithGatherer(reg), iplugin.WithLogger(iplugin.DefaultLogger))
 }

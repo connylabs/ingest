@@ -18,9 +18,42 @@ const (
 	PluginMagicCookieKey       = "INGEST_PLUGIN"
 )
 
-func RunPluginServer(s Source, d Destination, g prometheus.Gatherer) {
+type Option func(c *configuration)
+
+func WithLogger(l hclog.Logger) Option {
+	return func(c *configuration) {
+		c.l = l
+	}
+}
+
+func WithGatherer(g prometheus.Gatherer) Option {
+	return func(c *configuration) {
+		c.g = g
+	}
+}
+
+type configuration struct {
+	g prometheus.Gatherer
+	l hclog.Logger
+}
+
+func RunPluginServer(s Source, d Destination, opts ...Option) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	c := &configuration{
+		l: hclog.New(&hclog.LoggerOptions{
+			Level:      hclog.Info,
+			Output:     os.Stderr,
+			JSONFormat: true,
+		}),
+	}
+
+	for _, o := range opts {
+		if o != nil {
+			o(c)
+		}
+	}
 
 	handshakeConfig := hplugin.HandshakeConfig{
 		ProtocolVersion:  PluginMagicProtocalVersion,
@@ -28,30 +61,24 @@ func RunPluginServer(s Source, d Destination, g prometheus.Gatherer) {
 		MagicCookieValue: PluginCookieValue,
 	}
 
-	logger := hclog.New(&hclog.LoggerOptions{
-		Level:      hclog.Trace,
-		Output:     os.Stderr,
-		JSONFormat: true,
-	})
-
 	pluginMap := map[string]hplugin.Plugin{
 		"source": &pluginSource{
 			impl: s,
 			ctx:  ctx,
-			g:    g,
-			l:    logger.With("component", "source"),
+			g:    c.g,
+			l:    c.l.With("component", "source"),
 		},
 		"destination": &pluginDestination{
 			impl: d,
 			ctx:  ctx,
-			g:    g,
-			l:    logger.With("component", "destination"),
+			g:    c.g,
+			l:    c.l.With("component", "destination"),
 		},
 	}
 
 	hplugin.Serve(&hplugin.ServeConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
-		Logger:          logger,
+		Logger:          c.l,
 	})
 }
