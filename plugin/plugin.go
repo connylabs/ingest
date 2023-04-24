@@ -8,7 +8,6 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/storage"
@@ -39,19 +38,7 @@ type pluginSource struct {
 }
 
 func (p *pluginSource) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	reg := prometheus.NewRegistry()
-
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
-
-	var g prometheus.Gatherer = reg
-	if p.g != nil {
-		g = prometheus.Gatherers{g, p.g}
-	}
-
-	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
+	return &pluginSourceRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: p.g}, nil
 }
 
 func (p *pluginSource) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
@@ -70,17 +57,5 @@ func (p *pluginDestination) Client(mb *hplugin.MuxBroker, c *rpc.Client) (interf
 }
 
 func (p *pluginDestination) Server(mb *hplugin.MuxBroker) (interface{}, error) {
-	reg := prometheus.NewRegistry()
-
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
-
-	var g prometheus.Gatherer = reg
-	if p.g != nil {
-		g = prometheus.Gatherers{g, p.g}
-	}
-
-	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: g}, nil
+	return &pluginDestinationRPCServer{Impl: p.impl, mb: mb, l: p.l, ctx: p.ctx, g: p.g}, nil
 }
