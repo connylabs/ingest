@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 const (
@@ -41,12 +42,20 @@ func RunPluginServer(s Source, d Destination, opts ...Option) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	reg := prometheus.NewRegistry()
+
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
 	c := &configuration{
 		l: hclog.New(&hclog.LoggerOptions{
 			Level:      hclog.Info,
 			Output:     os.Stderr,
 			JSONFormat: true,
 		}),
+		g: reg,
 	}
 
 	for _, o := range opts {
