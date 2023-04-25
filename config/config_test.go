@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 
@@ -10,6 +11,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewWithEnv(t *testing.T) {
+	secret := "secret"
+	os.Setenv("INGEST_SECRET", secret)
+
+	c, err := New([]byte(`
+sources:
+- name: foo_1
+  type: s3
+  accessKey: $INGEST_SECRET
+`), nil)
+	require.NoError(t, err)
+	i, ok := c.Sources[0].Config["accessKey"]
+	require.True(t, ok, "accessKey not in map")
+	t.Log(i)
+	s, ok := i.(string)
+	require.True(t, ok, "accessKey is not string")
+
+	assert.Equal(t, secret, s)
+}
 
 func TestNew(t *testing.T) {
 	for _, tc := range []struct {

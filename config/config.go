@@ -33,6 +33,8 @@ func NewFromPath(path string, r prometheus.Registerer) (*Config, error) {
 func New(buf []byte, r prometheus.Registerer) (*Config, error) {
 	c := new(Config)
 
+	buf = []byte(os.ExpandEnv(string(buf)))
+
 	if err := yaml.Unmarshal(buf, c); err != nil {
 		return nil, fmt.Errorf("unable to read configuration YAML: %w", err)
 	}
