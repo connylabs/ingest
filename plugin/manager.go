@@ -58,7 +58,8 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 			}
 			mfs, err := g.Gather()
 			if err != nil {
-				return err
+				level.Error(pm.l).Log("msg", "failed to gather metrics for plugin", "err", err.Error(), "path", pm.sources[i].path, "mode", "source")
+				return nil
 			}
 			for _, mf := range mfs {
 				for _, m := range mf.Metric {
@@ -81,7 +82,9 @@ func (pm *PluginManager) Gather() ([]*dto.MetricFamily, error) {
 
 			mfs, err := g.Gather()
 			if err != nil {
-				return err
+				level.Error(pm.l).Log("msg", "failed to gather metrics for plugin", "err", err.Error(), "path", pm.destinations[i].path, "mode", "destination")
+				return nil
+
 			}
 			for _, mf := range mfs {
 				for _, m := range mf.Metric {
