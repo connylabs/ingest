@@ -35,7 +35,7 @@
   "description": "Manages files in Drive including uploading, downloading, searching, detecting changes, and updating sharing permissions.",
   "discoveryVersion": "v1",
   "documentationLink": "https://developers.google.com/drive/",
-  "etag": "\"uWj2hSb4GVjzdDlAnRd2gbM1ZQ8/i6TQ0TGQtceOw3gUFmDQmrB6DWw\"",
+  "etag": "\"uWj2hSb4GVjzdDlAnRd2gbM1ZQ8/y-B53r5mcDm2TryM80Julc5jb34\"",
   "icons": {
     "x16": "https://ssl.gstatic.com/docs/doclist/images/drive_icon_16.png",
     "x32": "https://ssl.gstatic.com/docs/doclist/images/drive_icon_32.png"
@@ -228,7 +228,7 @@
             },
             "spaces": {
               "default": "drive",
-              "description": "A comma-separated list of spaces to query within the user corpus. Supported values are 'drive', 'appDataFolder' and 'photos'.",
+              "description": "A comma-separated list of spaces to query within the corpora. Supported values are 'drive' and 'appDataFolder'.",
               "location": "query",
               "type": "string"
             },
@@ -266,7 +266,7 @@
           "supportsSubscription": true
         },
         "watch": {
-          "description": "Subscribes to changes for a user.",
+          "description": "Subscribes to changes for a user. To use this method, you must include the pageToken query parameter.",
           "httpMethod": "POST",
           "id": "drive.changes.watch",
           "parameterOrder": [
@@ -335,7 +335,7 @@
             },
             "spaces": {
               "default": "drive",
-              "description": "A comma-separated list of spaces to query within the user corpus. Supported values are 'drive', 'appDataFolder' and 'photos'.",
+              "description": "A comma-separated list of spaces to query within the corpora. Supported values are 'drive' and 'appDataFolder'.",
               "location": "query",
               "type": "string"
             },
@@ -404,7 +404,7 @@
     "comments": {
       "methods": {
         "create": {
-          "description": "Creates a new comment on a file.",
+          "description": "Creates a comment on a file.",
           "httpMethod": "POST",
           "id": "drive.comments.create",
           "parameterOrder": [
@@ -585,7 +585,7 @@
     "drives": {
       "methods": {
         "create": {
-          "description": "Creates a new shared drive.",
+          "description": "Creates a shared drive.",
           "httpMethod": "POST",
           "id": "drive.drives.create",
           "parameterOrder": [
@@ -759,7 +759,7 @@
           ]
         },
         "update": {
-          "description": "Updates the metadate for a shared drive.",
+          "description": "Updates the metadata for a shared drive.",
           "httpMethod": "PATCH",
           "id": "drive.drives.update",
           "parameterOrder": [
@@ -774,7 +774,7 @@
             },
             "useDomainAdminAccess": {
               "default": "false",
-              "description": "Issue the request as a domain administrator; if set to true, then the requester will be granted access if they are an administrator of the domain to which the shared drive belongs.",
+              "description": "Issue the request as a domain administrator. If set to true, then the requester is granted access if they're an administrator of the domain to which the shared drive belongs.",
               "location": "query",
               "type": "boolean"
             }
@@ -869,7 +869,7 @@
           ]
         },
         "create": {
-          "description": "Creates a new file.",
+          "description": "Creates a file.",
           "httpMethod": "POST",
           "id": "drive.files.create",
           "mediaUpload": {
@@ -1216,7 +1216,7 @@
             },
             "spaces": {
               "default": "drive",
-              "description": "A comma-separated list of spaces to query within the corpus. Supported values are 'drive' and 'appDataFolder'.",
+              "description": "A comma-separated list of spaces to query within the corpora. Supported values are 'drive' and 'appDataFolder'.",
               "location": "query",
               "type": "string"
             },
@@ -1492,7 +1492,7 @@
     "permissions": {
       "methods": {
         "create": {
-          "description": "Creates a permission for a file or shared drive.",
+          "description": "Creates a permission for a file or shared drive. For more information on creating permissions, see Share files, folders \u0026 drives.",
           "httpMethod": "POST",
           "id": "drive.permissions.create",
           "parameterOrder": [
@@ -1796,7 +1796,7 @@
     "replies": {
       "methods": {
         "create": {
-          "description": "Creates a new reply to a comment.",
+          "description": "Creates a reply to a comment.",
           "httpMethod": "POST",
           "id": "drive.replies.create",
           "parameterOrder": [
@@ -2312,7 +2312,7 @@
       }
     }
   },
-  "revision": "20221023",
+  "revision": "20230306",
   "rootUrl": "https://www.googleapis.com/",
   "schemas": {
     "About": {
@@ -2717,7 +2717,7 @@
       "id": "Drive",
       "properties": {
         "backgroundImageFile": {
-          "description": "An image file and cropping parameters from which a background image for this shared drive is set. This is a write only field; it can only be set on drive.drives.update requests that don't set themeId. When specified, all fields of the backgroundImageFile must be set.",
+          "description": "An image file and cropping parameters from which a background image for this shared drive is set. This is a write-only field; it can only be set on drive.drives.update requests that don't set themeId. When specified, all fields of the backgroundImageFile must be set.",
           "properties": {
             "id": {
               "description": "The ID of an image file in Google Drive to use for the background image.",
@@ -2766,6 +2766,10 @@
             },
             "canChangeDriveMembersOnlyRestriction": {
               "description": "Whether the current user can change the driveMembersOnly restriction of this shared drive.",
+              "type": "boolean"
+            },
+            "canChangeSharingFoldersRequiresOrganizerPermissionRestriction": {
+              "description": "Whether the current user can change the sharingFoldersRequiresOrganizerPermission restriction of this shared drive.",
               "type": "boolean"
             },
             "canComment": {
@@ -2828,7 +2832,7 @@
           "type": "object"
         },
         "colorRgb": {
-          "description": "The color of this shared drive as an RGB hex string. It can only be set on a drive.drives.update request that does not set themeId.",
+          "description": "The color of this shared drive as an RGB hex string. It can only be set on drive.drives.update requests that don't set themeId.",
           "type": "string"
         },
         "createdTime": {
@@ -2880,12 +2884,16 @@
             "driveMembersOnly": {
               "description": "Whether access to items inside this shared drive is restricted to its members.",
               "type": "boolean"
+            },
+            "sharingFoldersRequiresOrganizerPermission": {
+              "description": "If true, only users with the organizer role can share folders. If false, users with either the organizer role or the file organizer role can share folders.",
+              "type": "boolean"
             }
           },
           "type": "object"
         },
         "themeId": {
-          "description": "The ID of the theme from which the background image and color will be set. The set of possible driveThemes can be retrieved from a drive.about.get response. When not specified on a drive.drives.create request, a random theme is chosen from which the background image and color are set. This is a write-only field; it can only be set on requests that don't set colorRgb or backgroundImageFile.",
+          "description": "The ID of the theme from which the background image and color are set. The set of possible driveThemes can be retrieved from a drive.about.get response. When not specified on a drive.drives.create request, a random theme is chosen from which the background image and color are set. This is a write-only field; it can only be set on requests that don't set colorRgb or backgroundImageFile.",
           "type": "string"
         }
       },
@@ -3452,7 +3460,7 @@
           "type": "object"
         },
         "size": {
-          "description": "The size of the file's content in bytes. This is applicable to binary files in Google Drive and Google Docs files.",
+          "description": "The size of the file's content in bytes. This field is populated for files with binary content stored in Google Drive and for Docs Editors files; it is not populated for shortcuts or folders.",
           "format": "int64",
           "type": "string"
         },
@@ -3832,7 +3840,7 @@
       "type": "object"
     },
     "Permission": {
-      "description": "A permission for a file. A permission grants a user, group, domain or the world access to a file or a folder hierarchy.",
+      "description": "A permission for a file. A permission grants a user, group, domain, or the world access to a file or a folder hierarchy.",
       "id": "Permission",
       "properties": {
         "allowFileDiscovery": {
@@ -3844,11 +3852,11 @@
           "type": "boolean"
         },
         "displayName": {
-          "description": "The \"pretty\" name of the value of the permission. The following is a list of examples for each type of permission:  \n- user - User's full name, as defined for their Google account, such as \"Joe Smith.\" \n- group - Name of the Google Group, such as \"The Company Administrators.\" \n- domain - String domain name, such as \"thecompany.com.\" \n- anyone - No displayName is present.",
+          "description": "The \"pretty\" name of the value of the permission. The following is a list of examples for each type of permission:  \n- user - User's full name, as defined for their Google Account, such as \"Joe Smith.\" \n- group - Name of the Google Group, such as \"The Company Administrators.\" \n- domain - String domain name, such as \"your-company.com.\" \n- anyone - No displayName is present.",
           "type": "string"
         },
         "domain": {
-          "description": "The domain to which this permission refers.",
+          "description": "The domain to which this permission refers. The following options are currently allowed:  \n- The entire domain, such as \"your-company.com.\" \n- A target audience, such as \"ID.audience.googledomains.com.\"",
           "type": "string"
         },
         "emailAddress": {
@@ -3856,7 +3864,7 @@
           "type": "string"
         },
         "expirationTime": {
-          "description": "The time at which this permission will expire (RFC 3339 date-time). Expiration times have the following restrictions:  \n- They cannot be set on shared drive items \n- They can only be set on user and group permissions \n- The time must be in the future \n- The time cannot be more than a year in the future",
+          "description": "The time at which this permission will expire (RFC 3339 date-time). Expiration times have the following restrictions:  \n- They cannot be set on shared drive items. \n- They can only be set on user and group permissions. \n- The time must be in the future. \n- The time cannot be more than one year in the future.",
           "format": "date-time",
           "type": "string"
         },
@@ -3870,11 +3878,11 @@
           "type": "string"
         },
         "pendingOwner": {
-          "description": "Whether the account associated with this permission is a pending owner. Only populated for user type permissions for files that are not in a shared drive.",
+          "description": "Whether the account associated with this permission is a pending owner. Only populated for user type permissions for files that aren't in a shared drive.",
           "type": "boolean"
         },
         "permissionDetails": {
-          "description": "Details of whether the permissions on this shared drive item are inherited or directly on this item. This is an output-only field which is present only for shared drive items.",
+          "description": "Details of whether the permissions on this shared drive item are inherited or are directly on this item. This is an output-only field that's present only for shared drive items.",
           "items": {
             "properties": {
               "inherited": {
@@ -3886,11 +3894,11 @@
                 "type": "string"
               },
               "permissionType": {
-                "description": "The permission type for this user. While new values may be added in future, the following are currently possible:  \n- file \n- member",
+                "description": "The permission type for this user. While new values may be added in future, the following are currently allowed:  \n- file \n- member",
                 "type": "string"
               },
               "role": {
-                "description": "The primary role for this user. While new values may be added in the future, the following are currently possible:  \n- organizer \n- fileOrganizer \n- writer \n- commenter \n- reader",
+                "description": "The primary role for this user. While new values may be added in the future, the following are currently allowed:  \n- organizer \n- fileOrganizer \n- writer \n- commenter \n- reader",
                 "type": "string"
               }
             },
@@ -3944,7 +3952,7 @@
               "drive.permissions.create"
             ]
           },
-          "description": "The type of the grantee. Valid values are:  \n- user \n- group \n- domain \n- anyone  When creating a permission, if type is user or group, you must provide an emailAddress for the user or group. When type is domain, you must provide a domain. There isn't extra information required for a anyone type.",
+          "description": "The type of the grantee. Valid values are:  \n- user \n- group \n- domain \n- anyone  When creating a permission, if type is user or group, you must provide an emailAddress for the user or group. When type is domain, you must provide a domain. There isn't extra information required for the anyone type.",
           "type": "string"
         },
         "view": {
@@ -4207,6 +4215,10 @@
               "description": "Whether the current user can change the domainUsersOnly restriction of this Team Drive.",
               "type": "boolean"
             },
+            "canChangeSharingFoldersRequiresOrganizerPermissionRestriction": {
+              "description": "Whether the current user can change the sharingFoldersRequiresOrganizerPermission restriction of this Team Drive.",
+              "type": "boolean"
+            },
             "canChangeTeamDriveBackground": {
               "description": "Whether the current user can change the background of this Team Drive.",
               "type": "boolean"
@@ -4322,6 +4334,10 @@
             },
             "domainUsersOnly": {
               "description": "Whether access to this Team Drive and items inside this Team Drive is restricted to users of the domain to which this Team Drive belongs. This restriction may be overridden by other sharing policies controlled outside of this Team Drive.",
+              "type": "boolean"
+            },
+            "sharingFoldersRequiresOrganizerPermission": {
+              "description": "If true, only users with the organizer role can share folders. If false, users with either the organizer role or the file organizer role can share folders.",
               "type": "boolean"
             },
             "teamMembersOnly": {
