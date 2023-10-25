@@ -1,4 +1,4 @@
-// Copyright 2012-2022 The NATS Authors
+// Copyright 2012-2023 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -20,7 +20,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"net"
 	"net/url"
@@ -35,9 +34,10 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nkeys"
-
 	"github.com/nats-io/nats-server/v2/conf"
+	"github.com/nats-io/nats-server/v2/server/certidp"
+	"github.com/nats-io/nats-server/v2/server/certstore"
+	"github.com/nats-io/nkeys"
 )
 
 var allowUnknownTopLevelField = int32(0)
@@ -54,7 +54,7 @@ func NoErrOnUnknownFields(noError bool) {
 	atomic.StoreInt32(&allowUnknownTopLevelField, val)
 }
 
-// Set of lower case hex-encoded sha256 of DER encoded SubjectPublicKeyInfo
+// PinnedCertSet is a set of lower case hex-encoded sha256 of DER encoded SubjectPublicKeyInfo
 type PinnedCertSet map[string]struct{}
 
 // ClusterOpts are options for clusters.
@@ -159,18 +159,24 @@ type LeafNodeOpts struct {
 	tlsConfigOpts *TLSConfigOpts
 }
 
+// SignatureHandler is used to sign a nonce from the server while
+// authenticating with Nkeys. The callback should sign the nonce and
+// return the JWT and the raw signature.
+type SignatureHandler func([]byte) (string, []byte, error)
+
 // RemoteLeafOpts are options for connecting to a remote server as a leaf node.
 type RemoteLeafOpts struct {
-	LocalAccount string      `json:"local_account,omitempty"`
-	NoRandomize  bool        `json:"-"`
-	URLs         []*url.URL  `json:"urls,omitempty"`
-	Credentials  string      `json:"-"`
-	TLS          bool        `json:"-"`
-	TLSConfig    *tls.Config `json:"-"`
-	TLSTimeout   float64     `json:"tls_timeout,omitempty"`
-	Hub          bool        `json:"hub,omitempty"`
-	DenyImports  []string    `json:"-"`
-	DenyExports  []string    `json:"-"`
+	LocalAccount string           `json:"local_account,omitempty"`
+	NoRandomize  bool             `json:"-"`
+	URLs         []*url.URL       `json:"urls,omitempty"`
+	Credentials  string           `json:"-"`
+	SignatureCB  SignatureHandler `json:"-"`
+	TLS          bool             `json:"-"`
+	TLSConfig    *tls.Config      `json:"-"`
+	TLSTimeout   float64          `json:"tls_timeout,omitempty"`
+	Hub          bool             `json:"hub,omitempty"`
+	DenyImports  []string         `json:"-"`
+	DenyExports  []string         `json:"-"`
 
 	// When an URL has the "ws" (or "wss") scheme, then the server will initiate the
 	// connection as a websocket connection. By default, the websocket frames will be
@@ -182,6 +188,12 @@ type RemoteLeafOpts struct {
 	}
 
 	tlsConfigOpts *TLSConfigOpts
+
+	// If we are clustered and our local account has JetStream, if apps are accessing
+	// a stream or consumer leader through this LN and it gets dropped, the apps will
+	// not be able to work. This tells the system to migrate the leaders away from this server.
+	// This only changes leader for R>1 assets.
+	JetStreamClusterMigrate bool `json:"jetstream_cluster_migrate,omitempty"`
 }
 
 type JSLimitOpts struct {
@@ -199,6 +211,7 @@ type Options struct {
 	ServerName            string        `json:"server_name"`
 	Host                  string        `json:"addr"`
 	Port                  int           `json:"port"`
+	DontListen            bool          `json:"dont_listen"`
 	ClientAdvertise       string        `json:"-"`
 	Trace                 bool          `json:"-"`
 	Debug                 bool          `json:"-"`
@@ -209,6 +222,7 @@ type Options struct {
 	NoHeaderSupport       bool          `json:"-"`
 	DisableShortFirstPing bool          `json:"-"`
 	Logtime               bool          `json:"-"`
+	LogtimeUTC            bool          `json:"-"`
 	MaxConn               int           `json:"max_connections"`
 	MaxSubs               int           `json:"max_subscriptions,omitempty"`
 	MaxSubTokens          uint8         `json:"-"`
@@ -240,8 +254,10 @@ type Options struct {
 	JetStreamDomain       string        `json:"-"`
 	JetStreamExtHint      string        `json:"-"`
 	JetStreamKey          string        `json:"-"`
+	JetStreamCipher       StoreCipher   `json:"-"`
 	JetStreamUniqueTag    string
 	JetStreamLimits       JSLimitOpts
+	JetStreamMaxCatchup   int64
 	StoreDir              string            `json:"-"`
 	JsAccDefaultDomain    map[string]string `json:"-"` // account to domain name mapping
 	Websocket             WebsocketOpts     `json:"-"`
@@ -326,6 +342,12 @@ type Options struct {
 	// JetStream
 	maxMemSet   bool
 	maxStoreSet bool
+
+	// OCSP Cache config enables next-gen cache for OCSP features
+	OCSPCacheConfig *OCSPResponseCacheConfig
+
+	// Used to mark that we had a top level authorization block.
+	authBlockDefined bool
 }
 
 // WebsocketOpts are options for websocket
@@ -389,6 +411,9 @@ type WebsocketOpts struct {
 	// and write the response back to the client. This include the
 	// time needed for the TLS Handshake.
 	HandshakeTimeout time.Duration
+
+	// Snapshot of configured TLS options.
+	tlsConfigOpts *TLSConfigOpts
 }
 
 // MQTTOpts are options for MQTT
@@ -425,11 +450,18 @@ type MQTTOpts struct {
 	// replicas count (lower than StreamReplicas if specified, but also lower
 	// than the automatic value determined by cluster size).
 	// Note that existing consumers are not modified.
+	//
+	// UPDATE: This is no longer used while messages stream has interest policy retention
+	// which requires consumer replica count to match the parent stream.
 	ConsumerReplicas int
 
 	// Indicate if the consumers should be created with memory storage.
 	// Note that existing consumers are not modified.
 	ConsumerMemoryStorage bool
+
+	// If specified will have the system auto-cleanup the consumers after being
+	// inactive for the specified amount of time.
+	ConsumerInactiveThreshold time.Duration
 
 	// Timeout for the authentication process.
 	AuthTimeout float64
@@ -462,6 +494,9 @@ type MQTTOpts struct {
 	// subscription ending with "#" will use 2 times the MaxAckPending value.
 	// Note that changes to this option is applied only to new subscriptions.
 	MaxAckPending uint16
+
+	// Snapshot of configured TLS options.
+	tlsConfigOpts *TLSConfigOpts
 }
 
 type netResolver interface {
@@ -553,6 +588,10 @@ type TLSConfigOpts struct {
 	Ciphers           []uint16
 	CurvePreferences  []tls.CurveID
 	PinnedCerts       PinnedCertSet
+	CertStore         certstore.StoreType
+	CertMatchBy       certstore.MatchByType
+	CertMatch         string
+	OCSPPeerConfig    *certidp.OCSPPeerConfig
 }
 
 // OCSPConfig represents the options of OCSP stapling options.
@@ -708,6 +747,9 @@ func (o *Options) ProcessConfigFile(configFile string) error {
 	// Collect all errors and warnings and report them all together.
 	errors := make([]error, 0)
 	warnings := make([]error, 0)
+	if len(m) == 0 {
+		warnings = append(warnings, fmt.Errorf("%s: config has no values or is empty", configFile))
+	}
 
 	// First check whether a system account has been defined,
 	// as that is a condition for other features to be enabled.
@@ -765,6 +807,9 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 	case "logtime":
 		o.Logtime = v.(bool)
 		trackExplicitVal(o, &o.inConfig, "Logtime", o.Logtime)
+	case "logtime_utc":
+		o.LogtimeUTC = v.(bool)
+		trackExplicitVal(o, &o.inConfig, "LogtimeUTC", o.LogtimeUTC)
 	case "mappings", "maps":
 		gacc := NewAccount(globalAccountName)
 		o.Accounts = append(o.Accounts, gacc)
@@ -787,7 +832,7 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 			*errors = append(*errors, err)
 			return
 		}
-
+		o.authBlockDefined = true
 		o.Username = auth.user
 		o.Password = auth.pass
 		o.Authorization = auth.token
@@ -1109,8 +1154,10 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 			}
 		case map[string]interface{}:
 			del := false
-			dir := ""
-			dirType := ""
+			hdel := false
+			hdel_set := false
+			dir := _EMPTY_
+			dirType := _EMPTY_
 			limit := int64(0)
 			ttl := time.Duration(0)
 			sync := time.Duration(0)
@@ -1127,6 +1174,11 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 			if v, ok := v["allow_delete"]; ok {
 				_, v := unwrapValue(v, &lt)
 				del = v.(bool)
+			}
+			if v, ok := v["hard_delete"]; ok {
+				_, v := unwrapValue(v, &lt)
+				hdel_set = true
+				hdel = v.(bool)
 			}
 			if v, ok := v["limit"]; ok {
 				_, v := unwrapValue(v, &lt)
@@ -1151,29 +1203,51 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 				*errors = append(*errors, &configErr{tk, err.Error()})
 				return
 			}
-			if dir == "" {
-				*errors = append(*errors, &configErr{tk, "dir has no value and needs to point to a directory"})
-				return
+
+			checkDir := func() {
+				if dir == _EMPTY_ {
+					*errors = append(*errors, &configErr{tk, "dir has no value and needs to point to a directory"})
+					return
+				}
+				if info, _ := os.Stat(dir); info != nil && (!info.IsDir() || info.Mode().Perm()&(1<<(uint(7))) == 0) {
+					*errors = append(*errors, &configErr{tk, "dir needs to point to an accessible directory"})
+					return
+				}
 			}
-			if info, _ := os.Stat(dir); info != nil && (!info.IsDir() || info.Mode().Perm()&(1<<(uint(7))) == 0) {
-				*errors = append(*errors, &configErr{tk, "dir needs to point to an accessible directory"})
-				return
-			}
+
 			var res AccountResolver
 			switch strings.ToUpper(dirType) {
 			case "CACHE":
+				checkDir()
 				if sync != 0 {
 					*errors = append(*errors, &configErr{tk, "CACHE does not accept sync"})
 				}
 				if del {
 					*errors = append(*errors, &configErr{tk, "CACHE does not accept allow_delete"})
 				}
+				if hdel_set {
+					*errors = append(*errors, &configErr{tk, "CACHE does not accept hard_delete"})
+				}
 				res, err = NewCacheDirAccResolver(dir, limit, ttl, opts...)
 			case "FULL":
+				checkDir()
 				if ttl != 0 {
 					*errors = append(*errors, &configErr{tk, "FULL does not accept ttl"})
 				}
-				res, err = NewDirAccResolver(dir, limit, sync, del, opts...)
+				if hdel_set && !del {
+					*errors = append(*errors, &configErr{tk, "hard_delete has no effect without delete"})
+				}
+				delete := NoDelete
+				if del {
+					if hdel {
+						delete = HardDelete
+					} else {
+						delete = RenameDeleted
+					}
+				}
+				res, err = NewDirAccResolver(dir, limit, sync, delete, opts...)
+			case "MEM", "MEMORY":
+				res = &MemAccResolver{}
 			}
 			if err != nil {
 				*errors = append(*errors, &configErr{tk, err.Error()})
@@ -1351,6 +1425,34 @@ func (o *Options) processConfigFileLine(k string, v interface{}, errors *[]error
 			m[kk] = v.(string)
 		}
 		o.JsAccDefaultDomain = m
+	case "ocsp_cache":
+		var err error
+		switch vv := v.(type) {
+		case bool:
+			pc := NewOCSPResponseCacheConfig()
+			if vv {
+				// Set enabled
+				pc.Type = LOCAL
+				o.OCSPCacheConfig = pc
+			} else {
+				// Set disabled (none cache)
+				pc.Type = NONE
+				o.OCSPCacheConfig = pc
+			}
+		case map[string]interface{}:
+			pc, err := parseOCSPResponseCache(v)
+			if err != nil {
+				*errors = append(*errors, err)
+				return
+			}
+			o.OCSPCacheConfig = pc
+		default:
+			err = &configErr{tk, fmt.Sprintf("error parsing tags: unsupported type %T", v)}
+		}
+		if err != nil {
+			*errors = append(*errors, err)
+			return
+		}
 	default:
 		if au := atomic.LoadInt32(&allowUnknownTopLevelField); au == 0 && !tk.IsUsedVariable() {
 			err := &unknownConfigFieldErr{
@@ -1914,6 +2016,15 @@ func parseJetStream(v interface{}, opts *Options, errors *[]error, warnings *[]e
 				doEnable = mv.(bool)
 			case "key", "ek", "encryption_key":
 				opts.JetStreamKey = mv.(string)
+			case "cipher":
+				switch strings.ToLower(mv.(string)) {
+				case "chacha", "chachapoly":
+					opts.JetStreamCipher = ChaCha
+				case "aes":
+					opts.JetStreamCipher = AES
+				default:
+					return &configErr{tk, fmt.Sprintf("Unknown cipher type: %q", mv)}
+				}
 			case "extension_hint":
 				opts.JetStreamExtHint = mv.(string)
 			case "limits":
@@ -1922,6 +2033,12 @@ func parseJetStream(v interface{}, opts *Options, errors *[]error, warnings *[]e
 				}
 			case "unique_tag":
 				opts.JetStreamUniqueTag = strings.ToLower(strings.TrimSpace(mv.(string)))
+			case "max_outstanding_catchup":
+				s, err := getStorageSize(mv)
+				if err != nil {
+					return &configErr{tk, fmt.Sprintf("%s %s", strings.ToLower(mk), err)}
+				}
+				opts.JetStreamMaxCatchup = s
 			default:
 				if !tk.IsUsedVariable() {
 					err := &unknownConfigFieldErr{
@@ -2247,6 +2364,8 @@ func parseRemoteLeafNodes(v interface{}, errors *[]error, warnings *[]error) ([]
 				remote.Websocket.Compression = v.(bool)
 			case "ws_no_masking", "websocket_no_masking":
 				remote.Websocket.NoMasking = v.(bool)
+			case "jetstream_cluster_migrate", "js_cluster_migrate":
+				remote.JetStreamClusterMigrate = true
 			default:
 				if !tk.IsUsedVariable() {
 					err := &unknownConfigFieldErr{
@@ -2968,10 +3087,10 @@ func parseAccount(v map[string]interface{}, errors, warnings *[]error) (string, 
 
 // Parse an export stream or service.
 // e.g.
-//   {stream: "public.>"} # No accounts means public.
-//   {stream: "synadia.private.>", accounts: [cncf, natsio]}
-//   {service: "pub.request"} # No accounts means public.
-//   {service: "pub.special.request", accounts: [nats.io]}
+// {stream: "public.>"} # No accounts means public.
+// {stream: "synadia.private.>", accounts: [cncf, natsio]}
+// {service: "pub.request"} # No accounts means public.
+// {service: "pub.special.request", accounts: [nats.io]}
 func parseExportStreamOrService(v interface{}, errors, warnings *[]error) (*export, *export, error) {
 	var (
 		curStream  *export
@@ -3236,9 +3355,9 @@ func parseServiceLatency(root token, v interface{}) (l *serviceLatency, retErr e
 
 // Parse an import stream or service.
 // e.g.
-//   {stream: {account: "synadia", subject:"public.synadia"}, prefix: "imports.synadia"}
-//   {stream: {account: "synadia", subject:"synadia.private.*"}}
-//   {service: {account: "synadia", subject: "pub.special.request"}, to: "synadia.request"}
+// {stream: {account: "synadia", subject:"public.synadia"}, prefix: "imports.synadia"}
+// {stream: {account: "synadia", subject:"synadia.private.*"}}
+// {service: {account: "synadia", subject: "pub.special.request"}, to: "synadia.request"}
 func parseImportStreamOrService(v interface{}, errors, warnings *[]error) (*importStream, *importService, error) {
 	var (
 		curStream  *importStream
@@ -3788,6 +3907,11 @@ func PrintTLSHelpAndDie() {
 	for k := range curvePreferenceMap {
 		fmt.Printf("    %s\n", k)
 	}
+	if runtime.GOOS == "windows" {
+		fmt.Printf("%s\n", certstore.Usage)
+	}
+	fmt.Printf("%s", certidp.OCSPPeerUsage)
+	fmt.Printf("%s", OCSPResponseCacheUsage)
 	os.Exit(0)
 }
 
@@ -3945,6 +4069,54 @@ func parseTLS(v interface{}, isClientCtx bool) (t *TLSConfigOpts, retErr error) 
 				}
 				tc.PinnedCerts = wl
 			}
+		case "cert_store":
+			certStore, ok := mv.(string)
+			if !ok || certStore == _EMPTY_ {
+				return nil, &configErr{tk, certstore.ErrBadCertStoreField.Error()}
+			}
+			certStoreType, err := certstore.ParseCertStore(certStore)
+			if err != nil {
+				return nil, &configErr{tk, err.Error()}
+			}
+			tc.CertStore = certStoreType
+		case "cert_match_by":
+			certMatchBy, ok := mv.(string)
+			if !ok || certMatchBy == _EMPTY_ {
+				return nil, &configErr{tk, certstore.ErrBadCertMatchByField.Error()}
+			}
+			certMatchByType, err := certstore.ParseCertMatchBy(certMatchBy)
+			if err != nil {
+				return nil, &configErr{tk, err.Error()}
+			}
+			tc.CertMatchBy = certMatchByType
+		case "cert_match":
+			certMatch, ok := mv.(string)
+			if !ok || certMatch == _EMPTY_ {
+				return nil, &configErr{tk, certstore.ErrBadCertMatchField.Error()}
+			}
+			tc.CertMatch = certMatch
+		case "ocsp_peer":
+			switch vv := mv.(type) {
+			case bool:
+				pc := certidp.NewOCSPPeerConfig()
+				if vv {
+					// Set enabled
+					pc.Verify = true
+					tc.OCSPPeerConfig = pc
+				} else {
+					// Set disabled
+					pc.Verify = false
+					tc.OCSPPeerConfig = pc
+				}
+			case map[string]interface{}:
+				pc, err := parseOCSPPeer(mv)
+				if err != nil {
+					return nil, &configErr{tk, err.Error()}
+				}
+				tc.OCSPPeerConfig = pc
+			default:
+				return nil, &configErr{tk, fmt.Sprintf("error parsing ocsp peer config: unsupported type %T", v)}
+			}
 		default:
 			return nil, &configErr{tk, fmt.Sprintf("error parsing tls config, unknown field [%q]", mk)}
 		}
@@ -4075,6 +4247,7 @@ func parseWebsocket(v interface{}, o *Options, errors *[]error, warnings *[]erro
 			}
 			o.Websocket.TLSMap = tc.Map
 			o.Websocket.TLSPinnedCerts = tc.PinnedCerts
+			o.Websocket.tlsConfigOpts = tc
 		case "same_origin":
 			o.Websocket.SameOrigin = mv.(bool)
 		case "allowed_origins", "allowed_origin", "allow_origins", "allow_origin", "origins", "origin":
@@ -4165,6 +4338,7 @@ func parseMQTT(v interface{}, o *Options, errors *[]error, warnings *[]error) er
 			o.MQTT.TLSTimeout = tc.Timeout
 			o.MQTT.TLSMap = tc.Map
 			o.MQTT.TLSPinnedCerts = tc.PinnedCerts
+			o.MQTT.tlsConfigOpts = tc
 		case "authorization", "authentication":
 			auth := parseSimpleAuth(tk, errors, warnings)
 			o.MQTT.Username = auth.user
@@ -4188,9 +4362,19 @@ func parseMQTT(v interface{}, o *Options, errors *[]error, warnings *[]error) er
 		case "stream_replicas":
 			o.MQTT.StreamReplicas = int(mv.(int64))
 		case "consumer_replicas":
-			o.MQTT.ConsumerReplicas = int(mv.(int64))
+			err := &configWarningErr{
+				field: mk,
+				configErr: configErr{
+					token:  tk,
+					reason: `consumer replicas setting ignored in this server version`,
+				},
+			}
+			*warnings = append(*warnings, err)
 		case "consumer_memory_storage":
 			o.MQTT.ConsumerMemoryStorage = mv.(bool)
+		case "consumer_inactive_threshold", "consumer_auto_cleanup":
+			o.MQTT.ConsumerInactiveThreshold = parseDuration("consumer_inactive_threshold", tk, mv, errors, warnings)
+
 		default:
 			if !tk.IsUsedVariable() {
 				err := &unknownConfigFieldErr{
@@ -4221,11 +4405,13 @@ func GenTLSConfig(tc *TLSConfigOpts) (*tls.Config, error) {
 	}
 
 	switch {
-	case tc.CertFile != "" && tc.KeyFile == "":
+	case tc.CertFile != _EMPTY_ && tc.CertStore != certstore.STOREEMPTY:
+		return nil, certstore.ErrConflictCertFileAndStore
+	case tc.CertFile != _EMPTY_ && tc.KeyFile == _EMPTY_:
 		return nil, fmt.Errorf("missing 'key_file' in TLS configuration")
-	case tc.CertFile == "" && tc.KeyFile != "":
+	case tc.CertFile == _EMPTY_ && tc.KeyFile != _EMPTY_:
 		return nil, fmt.Errorf("missing 'cert_file' in TLS configuration")
-	case tc.CertFile != "" && tc.KeyFile != "":
+	case tc.CertFile != _EMPTY_ && tc.KeyFile != _EMPTY_:
 		// Now load in cert and private key
 		cert, err := tls.LoadX509KeyPair(tc.CertFile, tc.KeyFile)
 		if err != nil {
@@ -4236,6 +4422,11 @@ func GenTLSConfig(tc *TLSConfigOpts) (*tls.Config, error) {
 			return nil, fmt.Errorf("error parsing certificate: %v", err)
 		}
 		config.Certificates = []tls.Certificate{cert}
+	case tc.CertStore != certstore.STOREEMPTY:
+		err := certstore.TLSConfig(tc.CertStore, tc.CertMatchBy, tc.CertMatch, &config)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Require client certificates as needed
@@ -4244,7 +4435,7 @@ func GenTLSConfig(tc *TLSConfigOpts) (*tls.Config, error) {
 	}
 	// Add in CAs if applicable.
 	if tc.CaFile != "" {
-		rootPEM, err := ioutil.ReadFile(tc.CaFile)
+		rootPEM, err := os.ReadFile(tc.CaFile)
 		if err != nil || rootPEM == nil {
 			return nil, err
 		}
@@ -4276,6 +4467,9 @@ func MergeOptions(fileOpts, flagOpts *Options) *Options {
 	}
 	if flagOpts.Host != "" {
 		opts.Host = flagOpts.Host
+	}
+	if flagOpts.DontListen {
+		opts.DontListen = flagOpts.DontListen
 	}
 	if flagOpts.ClientAdvertise != "" {
 		opts.ClientAdvertise = flagOpts.ClientAdvertise
@@ -4618,9 +4812,10 @@ func ConfigureOptions(fs *flag.FlagSet, args []string, printVersion, printHelp, 
 	fs.BoolVar(&dbgAndTrcAndVerboseTrc, "DVV", false, "Enable Debug and Verbose Trace logging. (Traces system account as well)")
 	fs.BoolVar(&opts.Logtime, "T", true, "Timestamp log entries.")
 	fs.BoolVar(&opts.Logtime, "logtime", true, "Timestamp log entries.")
-	fs.StringVar(&opts.Username, "user", "", "Username required for connection.")
-	fs.StringVar(&opts.Password, "pass", "", "Password required for connection.")
-	fs.StringVar(&opts.Authorization, "auth", "", "Authorization token required for connection.")
+	fs.BoolVar(&opts.LogtimeUTC, "logtime_utc", false, "Timestamps in UTC instead of local timezone.")
+	fs.StringVar(&opts.Username, "user", _EMPTY_, "Username required for connection.")
+	fs.StringVar(&opts.Password, "pass", _EMPTY_, "Password required for connection.")
+	fs.StringVar(&opts.Authorization, "auth", _EMPTY_, "Authorization token required for connection.")
 	fs.IntVar(&opts.HTTPPort, "m", 0, "HTTP Port for /varz, /connz endpoints.")
 	fs.IntVar(&opts.HTTPPort, "http_port", 0, "HTTP Port for /varz, /connz endpoints.")
 	fs.IntVar(&opts.HTTPSPort, "ms", 0, "HTTPS Port for /varz, /connz endpoints.")
@@ -4628,8 +4823,8 @@ func ConfigureOptions(fs *flag.FlagSet, args []string, printVersion, printHelp, 
 	fs.StringVar(&configFile, "c", "", "Configuration file.")
 	fs.StringVar(&configFile, "config", "", "Configuration file.")
 	fs.BoolVar(&opts.CheckConfig, "t", false, "Check configuration and exit.")
-	fs.StringVar(&signal, "sl", "", "Send signal to nats-server process (stop, quit, reopen, reload).")
-	fs.StringVar(&signal, "signal", "", "Send signal to nats-server process (stop, quit, reopen, reload).")
+	fs.StringVar(&signal, "sl", "", "Send signal to nats-server process (ldm, stop, quit, term, reopen, reload).")
+	fs.StringVar(&signal, "signal", "", "Send signal to nats-server process (ldm, stop, quit, term, reopen, reload).")
 	fs.StringVar(&opts.PidFile, "P", "", "File to store process pid.")
 	fs.StringVar(&opts.PidFile, "pid", "", "File to store process pid.")
 	fs.StringVar(&opts.PortsFileDir, "ports_file_dir", "", "Creates a ports file in the specified directory (<executable_name>_<pid>.ports).")
@@ -4951,7 +5146,7 @@ func processSignal(signal string) error {
 // 2. If such a file exists and can be read, return its contents.
 // 3. Otherwise, return the original "pidStr" string.
 func maybeReadPidFile(pidStr string) string {
-	if b, err := ioutil.ReadFile(pidStr); err == nil {
+	if b, err := os.ReadFile(pidStr); err == nil {
 		return string(b)
 	}
 	return pidStr
