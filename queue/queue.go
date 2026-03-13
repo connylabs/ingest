@@ -20,7 +20,7 @@ type queue struct {
 
 // New is able to connect to the queue
 func New(url string, stream string, replicas int, subjects []string, maxMsgs int64, reg prometheus.Registerer) (ingest.Queue, error) {
-	conn, err := nats.Connect(url)
+	conn, err := nats.Connect(url, nats.MaxReconnects(-1))
 	if err != nil {
 		return &queue{conn: nil}, err
 	}
