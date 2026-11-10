@@ -1,4 +1,4 @@
-// Copyright 2015-2018 The NATS Authors
+// Copyright 2015-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,7 +16,6 @@ package pse
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync/atomic"
 	"syscall"
@@ -29,6 +28,7 @@ var (
 	lastTotal    int64
 	lastSeconds  int64
 	ipcpu        int64
+	pageSize     int64
 )
 
 const (
@@ -43,12 +43,13 @@ func init() {
 	// Avoiding to generate docker image without CGO
 	ticks = 100 // int64(C.sysconf(C._SC_CLK_TCK))
 	procStatFile = fmt.Sprintf("/proc/%d/stat", os.Getpid())
+	pageSize = int64(os.Getpagesize())
 	periodic()
 }
 
 // Sampling function to keep pcpu relevant.
 func periodic() {
-	contents, err := ioutil.ReadFile(procStatFile)
+	contents, err := os.ReadFile(procStatFile)
 	if err != nil {
 		return
 	}
@@ -88,14 +89,14 @@ func periodic() {
 
 // ProcUsage returns CPU usage
 func ProcUsage(pcpu *float64, rss, vss *int64) error {
-	contents, err := ioutil.ReadFile(procStatFile)
+	contents, err := os.ReadFile(procStatFile)
 	if err != nil {
 		return err
 	}
 	fields := bytes.Fields(contents)
 
 	// Memory
-	*rss = (parseInt64(fields[rssPos])) << 12
+	*rss = (parseInt64(fields[rssPos])) * pageSize
 	*vss = parseInt64(fields[vssPos])
 
 	// PCPU

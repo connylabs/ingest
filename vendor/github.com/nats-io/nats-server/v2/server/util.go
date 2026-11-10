@@ -1,4 +1,4 @@
-// Copyright 2012-2019 The NATS Authors
+// Copyright 2012-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -14,14 +14,17 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"net"
 	"net/url"
 	"reflect"
-	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -37,11 +40,9 @@ const (
 	asciiNine = 57
 )
 
-var semVerRe = regexp.MustCompile(`\Av?([0-9]+)\.?([0-9]+)?\.?([0-9]+)?`)
-
 func versionComponents(version string) (major, minor, patch int, err error) {
 	m := semVerRe.FindStringSubmatch(version)
-	if m == nil {
+	if len(m) == 0 {
 		return 0, 0, 0, errors.New("invalid semver")
 	}
 	major, err = strconv.Atoi(m[1])
@@ -333,4 +334,53 @@ func copyStrings(src []string) []string {
 	dst := make([]string, len(src))
 	copy(dst, src)
 	return dst
+}
+
+// Returns a byte slice for the INFO protocol.
+func generateInfoJSON(info *Info) []byte {
+	b, _ := json.Marshal(info)
+	pcs := [][]byte{[]byte("INFO"), b, []byte(CR_LF)}
+	return bytes.Join(pcs, []byte(" "))
+}
+
+// parallelTaskQueue starts a number of goroutines and returns a channel
+// which functions can be sent to for queued parallel execution. The
+// goroutines will stop running when the returned channel is closed and
+// all queued tasks have completed. The passed in mp limits concurrency,
+// or a value <= 0 will default to GOMAXPROCS.
+func parallelTaskQueue(mp int) chan<- func() {
+	if rmp := runtime.GOMAXPROCS(-1); mp <= 0 {
+		mp = rmp
+	} else {
+		mp = max(rmp, mp)
+	}
+	tq := make(chan func(), mp)
+	for range mp {
+		go func() {
+			for fn := range tq {
+				fn()
+			}
+		}()
+	}
+	return tq
+}
+
+// addSaturate returns a + b, saturating at math.MaxInt64.
+// Both a and b must be non-negative.
+func addSaturate(a, b int64) int64 {
+	sum, carry := bits.Add64(uint64(a), uint64(b), 0)
+	if carry != 0 || sum > uint64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return int64(sum)
+}
+
+// mulSaturate returns a * b, saturating at math.MaxInt64.
+// Both a and b must be non-negative.
+func mulSaturate(a, b int64) int64 {
+	hi, lo := bits.Mul64(uint64(a), uint64(b))
+	if hi != 0 || lo > uint64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return int64(lo)
 }

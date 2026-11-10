@@ -1,4 +1,4 @@
-// Copyright 2012-2022 The NATS Authors
+// Copyright 2012-2024 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -34,6 +33,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,7 +48,7 @@ import (
 
 // Default Constants
 const (
-	Version                   = "1.16.0"
+	Version                   = "1.49.0"
 	DefaultURL                = "nats://127.0.0.1:4222"
 	DefaultPort               = 4222
 	DefaultMaxReconnect       = 60
@@ -62,6 +62,7 @@ const (
 	DefaultReconnectBufSize   = 8 * 1024 * 1024 // 8MB
 	RequestChanLen            = 8
 	DefaultDrainTimeout       = 30 * time.Second
+	DefaultFlusherTimeout     = time.Minute
 	LangString                = "go"
 )
 
@@ -84,94 +85,76 @@ const (
 	// ACCOUNT_AUTHENTICATION_EXPIRED_ERR is for when nats server account authorization has expired.
 	ACCOUNT_AUTHENTICATION_EXPIRED_ERR = "account authentication expired"
 
-	// MAX_CONNECTIONS_ERR is for when nats server denies the connection due to server max_connections limit
+	// MAX_CONNECTIONS_ERR is for when nats server denies the connection due to server max_connections limit.
 	MAX_CONNECTIONS_ERR = "maximum connections exceeded"
+
+	// MAX_ACCOUNT_CONNECTIONS_ERR is for when nats server denies the connection due to server max_connections limit on the account.
+	MAX_ACCOUNT_CONNECTIONS_ERR = `maximum account active connections exceeded`
+
+	// MAX_SUBSCRIPTIONS_ERR is for when nats server denies the connection due to server subscriptions limit.
+	MAX_SUBSCRIPTIONS_ERR = "maximum subscriptions exceeded"
 )
 
 // Errors
 var (
-	ErrConnectionClosed             = errors.New("nats: connection closed")
-	ErrConnectionDraining           = errors.New("nats: connection draining")
-	ErrDrainTimeout                 = errors.New("nats: draining connection timed out")
-	ErrConnectionReconnecting       = errors.New("nats: connection reconnecting")
-	ErrSecureConnRequired           = errors.New("nats: secure connection required")
-	ErrSecureConnWanted             = errors.New("nats: secure connection not available")
-	ErrBadSubscription              = errors.New("nats: invalid subscription")
-	ErrTypeSubscription             = errors.New("nats: invalid subscription type")
-	ErrBadSubject                   = errors.New("nats: invalid subject")
-	ErrBadQueueName                 = errors.New("nats: invalid queue name")
-	ErrSlowConsumer                 = errors.New("nats: slow consumer, messages dropped")
-	ErrTimeout                      = errors.New("nats: timeout")
-	ErrBadTimeout                   = errors.New("nats: timeout invalid")
-	ErrAuthorization                = errors.New("nats: authorization violation")
-	ErrAuthExpired                  = errors.New("nats: authentication expired")
-	ErrAuthRevoked                  = errors.New("nats: authentication revoked")
-	ErrAccountAuthExpired           = errors.New("nats: account authentication expired")
-	ErrNoServers                    = errors.New("nats: no servers available for connection")
-	ErrJsonParse                    = errors.New("nats: connect message, json parse error")
-	ErrChanArg                      = errors.New("nats: argument needs to be a channel type")
-	ErrMaxPayload                   = errors.New("nats: maximum payload exceeded")
-	ErrMaxMessages                  = errors.New("nats: maximum messages delivered")
-	ErrSyncSubRequired              = errors.New("nats: illegal call on an async subscription")
-	ErrMultipleTLSConfigs           = errors.New("nats: multiple tls.Configs not allowed")
-	ErrNoInfoReceived               = errors.New("nats: protocol exception, INFO not received")
-	ErrReconnectBufExceeded         = errors.New("nats: outbound buffer limit exceeded")
-	ErrInvalidConnection            = errors.New("nats: invalid connection")
-	ErrInvalidMsg                   = errors.New("nats: invalid message or message nil")
-	ErrInvalidArg                   = errors.New("nats: invalid argument")
-	ErrInvalidContext               = errors.New("nats: invalid context")
-	ErrNoDeadlineContext            = errors.New("nats: context requires a deadline")
-	ErrNoEchoNotSupported           = errors.New("nats: no echo option not supported by this server")
-	ErrClientIDNotSupported         = errors.New("nats: client ID not supported by this server")
-	ErrUserButNoSigCB               = errors.New("nats: user callback defined without a signature handler")
-	ErrNkeyButNoSigCB               = errors.New("nats: nkey defined without a signature handler")
-	ErrNoUserCB                     = errors.New("nats: user callback not defined")
-	ErrNkeyAndUser                  = errors.New("nats: user callback and nkey defined")
-	ErrNkeysNotSupported            = errors.New("nats: nkeys not supported by the server")
-	ErrStaleConnection              = errors.New("nats: " + STALE_CONNECTION)
-	ErrTokenAlreadySet              = errors.New("nats: token and token handler both set")
-	ErrMsgNotBound                  = errors.New("nats: message is not bound to subscription/connection")
-	ErrMsgNoReply                   = errors.New("nats: message does not have a reply")
-	ErrClientIPNotSupported         = errors.New("nats: client IP not supported by this server")
-	ErrDisconnected                 = errors.New("nats: server is disconnected")
-	ErrHeadersNotSupported          = errors.New("nats: headers not supported by this server")
-	ErrBadHeaderMsg                 = errors.New("nats: message could not decode headers")
-	ErrNoResponders                 = errors.New("nats: no responders available for request")
-	ErrNoContextOrTimeout           = errors.New("nats: no context or timeout given")
-	ErrPullModeNotAllowed           = errors.New("nats: pull based not supported")
-	ErrJetStreamNotEnabled          = errors.New("nats: jetstream not enabled")
-	ErrJetStreamBadPre              = errors.New("nats: jetstream api prefix not valid")
-	ErrNoStreamResponse             = errors.New("nats: no response from stream")
-	ErrNotJSMessage                 = errors.New("nats: not a jetstream message")
-	ErrInvalidStreamName            = errors.New("nats: invalid stream name")
-	ErrInvalidDurableName           = errors.New("nats: invalid durable name")
-	ErrInvalidConsumerName          = errors.New("nats: invalid consumer name")
-	ErrNoMatchingStream             = errors.New("nats: no stream matches subject")
-	ErrSubjectMismatch              = errors.New("nats: subject does not match consumer")
-	ErrContextAndTimeout            = errors.New("nats: context and timeout can not both be set")
-	ErrInvalidJSAck                 = errors.New("nats: invalid jetstream publish response")
-	ErrMultiStreamUnsupported       = errors.New("nats: multiple streams are not supported")
-	ErrStreamConfigRequired         = errors.New("nats: stream configuration is required")
-	ErrStreamNameRequired           = errors.New("nats: stream name is required")
-	ErrStreamNotFound               = errors.New("nats: stream not found")
-	ErrConsumerNotFound             = errors.New("nats: consumer not found")
-	ErrConsumerNameRequired         = errors.New("nats: consumer name is required")
-	ErrConsumerConfigRequired       = errors.New("nats: consumer configuration is required")
-	ErrStreamSnapshotConfigRequired = errors.New("nats: stream snapshot configuration is required")
-	ErrDeliverSubjectRequired       = errors.New("nats: deliver subject is required")
-	ErrPullSubscribeToPushConsumer  = errors.New("nats: cannot pull subscribe to push based consumer")
-	ErrPullSubscribeRequired        = errors.New("nats: must use pull subscribe to bind to pull based consumer")
-	ErrConsumerNotActive            = errors.New("nats: consumer not active")
-	ErrMsgNotFound                  = errors.New("nats: message not found")
-	ErrMsgAlreadyAckd               = errors.New("nats: message was already acknowledged")
-	ErrStreamInfoMaxSubjects        = errors.New("nats: subject details would exceed maximum allowed")
-	ErrStreamNameAlreadyInUse       = errors.New("nats: stream name already in use")
-	ErrMaxConnectionsExceeded       = errors.New("nats: server maximum connections exceeded")
+	ErrConnectionClosed              = errors.New("nats: connection closed")
+	ErrConnectionDraining            = errors.New("nats: connection draining")
+	ErrDrainTimeout                  = errors.New("nats: draining connection timed out")
+	ErrConnectionReconnecting        = errors.New("nats: connection reconnecting")
+	ErrSecureConnRequired            = errors.New("nats: secure connection required")
+	ErrSecureConnWanted              = errors.New("nats: secure connection not available")
+	ErrBadSubscription               = errors.New("nats: invalid subscription")
+	ErrTypeSubscription              = errors.New("nats: invalid subscription type")
+	ErrBadSubject                    = errors.New("nats: invalid subject")
+	ErrBadQueueName                  = errors.New("nats: invalid queue name")
+	ErrSlowConsumer                  = errors.New("nats: slow consumer, messages dropped")
+	ErrTimeout                       = errors.New("nats: timeout")
+	ErrBadTimeout                    = errors.New("nats: timeout invalid")
+	ErrAuthorization                 = errors.New("nats: authorization violation")
+	ErrAuthExpired                   = errors.New("nats: authentication expired")
+	ErrAuthRevoked                   = errors.New("nats: authentication revoked")
+	ErrPermissionViolation           = errors.New("nats: permissions violation")
+	ErrAccountAuthExpired            = errors.New("nats: account authentication expired")
+	ErrNoServers                     = errors.New("nats: no servers available for connection")
+	ErrJsonParse                     = errors.New("nats: connect message, json parse error")
+	ErrChanArg                       = errors.New("nats: argument needs to be a channel type")
+	ErrMaxPayload                    = errors.New("nats: maximum payload exceeded")
+	ErrMaxMessages                   = errors.New("nats: maximum messages delivered")
+	ErrSyncSubRequired               = errors.New("nats: illegal call on an async subscription")
+	ErrMultipleTLSConfigs            = errors.New("nats: multiple tls.Configs not allowed")
+	ErrClientCertOrRootCAsRequired   = errors.New("nats: at least one of certCB or rootCAsCB must be set")
+	ErrNoInfoReceived                = errors.New("nats: protocol exception, INFO not received")
+	ErrReconnectBufExceeded          = errors.New("nats: outbound buffer limit exceeded")
+	ErrInvalidConnection             = errors.New("nats: invalid connection")
+	ErrInvalidMsg                    = errors.New("nats: invalid message or message nil")
+	ErrInvalidArg                    = errors.New("nats: invalid argument")
+	ErrInvalidContext                = errors.New("nats: invalid context")
+	ErrNoDeadlineContext             = errors.New("nats: context requires a deadline")
+	ErrNoEchoNotSupported            = errors.New("nats: no echo option not supported by this server")
+	ErrClientIDNotSupported          = errors.New("nats: client ID not supported by this server")
+	ErrUserButNoSigCB                = errors.New("nats: user callback defined without a signature handler")
+	ErrNkeyButNoSigCB                = errors.New("nats: nkey defined without a signature handler")
+	ErrNoUserCB                      = errors.New("nats: user callback not defined")
+	ErrNkeyAndUser                   = errors.New("nats: user callback and nkey defined")
+	ErrNkeysNotSupported             = errors.New("nats: nkeys not supported by the server")
+	ErrStaleConnection               = errors.New("nats: " + STALE_CONNECTION)
+	ErrTokenAlreadySet               = errors.New("nats: token and token handler both set")
+	ErrUserInfoAlreadySet            = errors.New("nats: cannot set user info callback and user/pass")
+	ErrMsgNotBound                   = errors.New("nats: message is not bound to subscription/connection")
+	ErrMsgNoReply                    = errors.New("nats: message does not have a reply")
+	ErrClientIPNotSupported          = errors.New("nats: client IP not supported by this server")
+	ErrDisconnected                  = errors.New("nats: server is disconnected")
+	ErrHeadersNotSupported           = errors.New("nats: headers not supported by this server")
+	ErrBadHeaderMsg                  = errors.New("nats: message could not decode headers")
+	ErrNoResponders                  = errors.New("nats: no responders available for request")
+	ErrMaxConnectionsExceeded        = errors.New("nats: server maximum connections exceeded")
+	ErrMaxAccountConnectionsExceeded = errors.New("nats: maximum account active connections exceeded")
+	ErrConnectionNotTLS              = errors.New("nats: connection is not tls")
+	ErrMaxSubscriptionsExceeded      = errors.New("nats: server maximum subscriptions exceeded")
+	ErrWebSocketHeadersAlreadySet    = errors.New("nats: websocket connection headers already set")
+	ErrServerNotInPool               = errors.New("nats: selected server is not in the pool")
+	ErrMixingWebsocketSchemes        = errors.New("nats: mixing of websocket and non websocket URLs is not allowed")
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // GetDefaultOptions returns default configuration options for the client.
 func GetDefaultOptions() Options {
@@ -187,10 +170,11 @@ func GetDefaultOptions() Options {
 		SubChanLen:         DefaultMaxChanLen,
 		ReconnectBufSize:   DefaultReconnectBufSize,
 		DrainTimeout:       DefaultDrainTimeout,
+		FlusherTimeout:     DefaultFlusherTimeout,
 	}
 }
 
-// DEPRECATED: Use GetDefaultOptions() instead.
+// Deprecated: Use GetDefaultOptions() instead.
 // DefaultOptions is not safe for use by multiple clients.
 // For details see #308.
 var DefaultOptions = GetDefaultOptions()
@@ -244,6 +228,13 @@ type ErrHandler func(*Conn, *Subscription, error)
 // JWT for this user.
 type UserJWTHandler func() (string, error)
 
+// TLSCertHandler is used to fetch and return tls certificate.
+type TLSCertHandler func() (tls.Certificate, error)
+
+// RootCAsHandler is used to fetch and return a set of root certificate
+// authorities that clients use when verifying server certificates.
+type RootCAsHandler func() (*x509.CertPool, error)
+
 // SignatureHandler is used to sign a nonce from the server while
 // authenticating with nkeys. The user should sign the nonce and
 // return the raw signature. The client will base64 encode this to
@@ -253,11 +244,36 @@ type SignatureHandler func([]byte) ([]byte, error)
 // AuthTokenHandler is used to generate a new token.
 type AuthTokenHandler func() string
 
+// UserInfoCB is used to pass the username and password when establishing a connection.
+type UserInfoCB func() (string, string)
+
 // ReconnectDelayHandler is used to get from the user the desired
 // delay the library should pause before attempting to reconnect
 // again. Note that this is invoked after the library tried the
 // whole list of URLs and failed to reconnect.
 type ReconnectDelayHandler func(attempts int) time.Duration
+
+// WebSocketHeadersHandler is an optional callback handler for generating token used for WebSocket connections.
+type WebSocketHeadersHandler func() (http.Header, error)
+
+// ReconnectToServerHandler is used to determine the server to reconnect to during
+// the reconnection process. The handler receives a snapshot of available servers
+// in the pool and should return a pointer to one of the servers from the provided
+// slice and a delay before attempting the connection.
+//
+// Return values:
+//   - *Server: The server to connect to. Must be a pointer to an element from the
+//     provided servers slice. If the returned server is not in the pool, the library
+//     will fire ReconnectErrCB with ErrServerNotInPool and fall back to default
+//     server selection.
+//   - time.Duration: The delay before attempting the connection. If zero, the
+//     connection attempt is made immediately. If non-zero, the library sleeps
+//     for exactly that duration before attempting.
+//
+// MaxReconnect limits are enforced automatically: servers exceeding the configured
+// MaxReconnect attempts are removed from the pool before the handler is called.
+// To disable this limit, set MaxReconnect to a negative value.
+type ReconnectToServerHandler func([]Server, ServerInfo) (*Server, time.Duration)
 
 // asyncCB is used to preserve order for async callbacks.
 type asyncCB struct {
@@ -275,19 +291,28 @@ type asyncCallbacksHandler struct {
 // Option is a function on the options for a connection.
 type Option func(*Options) error
 
-// CustomDialer can be used to specify any dialer, not necessarily
-// a *net.Dialer.
+// CustomDialer can be used to specify any dialer, not necessarily a
+// *net.Dialer.  A CustomDialer may also implement `SkipTLSHandshake() bool`
+// in order to skip the TLS handshake in case not required.
 type CustomDialer interface {
 	Dial(network, address string) (net.Conn, error)
 }
 
+type InProcessConnProvider interface {
+	InProcessConn() (net.Conn, error)
+}
+
 // Options can be used to create a customized connection.
 type Options struct {
-
 	// Url represents a single NATS server url to which the client
 	// will be connecting. If the Servers option is also set, it
 	// then becomes the first server in the Servers array.
 	Url string
+
+	// InProcessServer represents a NATS server running within the
+	// same process. If this is set then we will attempt to connect
+	// to the server directly rather than using external TCP conns.
+	InProcessServer InProcessConnProvider
 
 	// Servers is a configured set of servers which this client
 	// will use when attempting to connect.
@@ -322,6 +347,20 @@ type Options struct {
 	// transports.
 	TLSConfig *tls.Config
 
+	// TLSCertCB is used to fetch and return custom tls certificate.
+	TLSCertCB TLSCertHandler
+
+	// TLSHandshakeFirst is used to instruct the library perform
+	// the TLS handshake right after the connect and before receiving
+	// the INFO protocol from the server. If this option is enabled
+	// but the server is not configured to perform the TLS handshake
+	// first, the connection will fail.
+	TLSHandshakeFirst bool
+
+	// RootCAsCB is used to fetch and return a set of root certificate
+	// authorities that clients use when verifying server certificates.
+	RootCAsCB RootCAsHandler
+
 	// AllowReconnect enables reconnection logic to be used when we
 	// encounter a disconnect from the current server.
 	AllowReconnect bool
@@ -329,10 +368,12 @@ type Options struct {
 	// MaxReconnect sets the number of reconnect attempts that will be
 	// tried before giving up. If negative, then it will never give up
 	// trying to reconnect.
+	// Defaults to 60.
 	MaxReconnect int
 
-	// ReconnectWait sets the time to backoff after attempting a reconnect
+	// ReconnectWait sets the time to back off after attempting a reconnect
 	// to a server that we were already connected to previously.
+	// Defaults to 2s.
 	ReconnectWait time.Duration
 
 	// CustomReconnectDelayCB is invoked after the library tried every
@@ -345,28 +386,35 @@ type Options struct {
 
 	// ReconnectJitter sets the upper bound for a random delay added to
 	// ReconnectWait during a reconnect when no TLS is used.
+	// Defaults to 100ms.
 	ReconnectJitter time.Duration
 
 	// ReconnectJitterTLS sets the upper bound for a random delay added to
 	// ReconnectWait during a reconnect when TLS is used.
+	// Defaults to 1s.
 	ReconnectJitterTLS time.Duration
 
 	// Timeout sets the timeout for a Dial operation on a connection.
+	// Defaults to 2s.
 	Timeout time.Duration
 
-	// DrainTimeout sets the timeout for a Drain Operation to complete.
+	// DrainTimeout sets the timeout for a drain operation to complete.
+	// Defaults to 30s.
 	DrainTimeout time.Duration
 
 	// FlusherTimeout is the maximum time to wait for write operations
 	// to the underlying connection to complete (including the flusher loop).
+	// Defaults to 1m.
 	FlusherTimeout time.Duration
 
 	// PingInterval is the period at which the client will be sending ping
 	// commands to the server, disabled if 0 or negative.
+	// Defaults to 2m.
 	PingInterval time.Duration
 
 	// MaxPingsOut is the maximum number of pending ping commands that can
 	// be awaiting a response before raising an ErrStaleConnection error.
+	// Defaults to 2.
 	MaxPingsOut int
 
 	// ClosedCB sets the closed handler that is called when a client will
@@ -376,7 +424,7 @@ type Options struct {
 	// DisconnectedCB sets the disconnected handler that is called
 	// whenever the connection is disconnected.
 	// Will not be called if DisconnectedErrCB is set
-	// DEPRECATED. Use DisconnectedErrCB which passes error that caused
+	// Deprecated. Use DisconnectedErrCB which passes error that caused
 	// the disconnect event.
 	DisconnectedCB ConnHandler
 
@@ -385,6 +433,12 @@ type Options struct {
 	// Disconnected error could be nil, for instance when user explicitly closes the connection.
 	// DisconnectedCB will not be called if DisconnectedErrCB is set
 	DisconnectedErrCB ConnErrHandler
+
+	// ConnectedCB sets the connected handler called when the initial connection
+	// is established. It is not invoked on successful reconnects - for reconnections,
+	// use ReconnectedCB. ConnectedCB can be used in conjunction with RetryOnFailedConnect
+	// to detect whether the initial connect was successful.
+	ConnectedCB ConnHandler
 
 	// ReconnectedCB sets the reconnected handler called whenever
 	// the connection is successfully reconnected.
@@ -397,14 +451,27 @@ type Options struct {
 	// AsyncErrorCB sets the async error handler (e.g. slow consumer errors)
 	AsyncErrorCB ErrHandler
 
+	// ReconnectErrCB sets the callback that is invoked whenever a
+	// reconnect attempt fails.
+	ReconnectErrCB ConnErrHandler
+
+	// ReconnectToServerCB is called before reconnection attempt.
+	// It is used to determine the server to reconnect to out of
+	// the list of available servers.
+	// If a reconnect attempt is not successful, this callback will
+	// be called again before the next attempt.
+	ReconnectToServerCB ReconnectToServerHandler
+
 	// ReconnectBufSize is the size of the backing bufio during reconnect.
 	// Once this has been exhausted publish operations will return an error.
+	// Defaults to 8388608 bytes (8MB).
 	ReconnectBufSize int
 
 	// SubChanLen is the size of the buffered channel used between the socket
-	// Go routine and the message delivery for SyncSubscriptions.
+	// goroutine and the message delivery for SyncSubscriptions.
 	// NOTE: This does not affect AsyncSubscriptions which are
-	// dictated by PendingLimits()
+	// dictated by PendingLimits().
+	// Defaults to 65536.
 	SubChanLen int
 
 	// UserJWT sets the callback handler that will fetch a user's JWT.
@@ -425,14 +492,18 @@ type Options struct {
 	// Password sets the password to be used when connecting to a server.
 	Password string
 
+	// UserInfo sets the callback handler that will fetch the username and password.
+	UserInfo UserInfoCB
+
 	// Token sets the token to be used when connecting to a server.
 	Token string
 
-	// TokenHandler designates the function used to generate the token to be used when connecting to a server.
+	// TokenHandler designates the function used to generate the token
+	// used when connecting to a server.
 	TokenHandler AuthTokenHandler
 
 	// Dialer allows a custom net.Dialer when forming connections.
-	// DEPRECATED: should use CustomDialer instead.
+	// Deprecated: should use CustomDialer instead.
 	Dialer *net.Dialer
 
 	// CustomDialer allows to specify a custom dialer (not necessarily
@@ -458,8 +529,9 @@ type Options struct {
 	// away if it can't connect to a server in the initial set. The
 	// MaxReconnect and ReconnectWait options are used for this process,
 	// similarly to when an established connection is disconnected.
-	// If a ReconnectHandler is set, it will be invoked when the connection
-	// is established, and if a ClosedHandler is set, it will be invoked if
+	// If a ReconnectHandler is set, it will be invoked on the first
+	// successful reconnect attempt (if the initial connect fails),
+	// and if a ClosedHandler is set, it will be invoked if
 	// it fails to connect (after exhausting the MaxReconnect attempts).
 	RetryOnFailedConnect bool
 
@@ -473,6 +545,33 @@ type Options struct {
 
 	// InboxPrefix allows the default _INBOX prefix to be customized
 	InboxPrefix string
+
+	// IgnoreAuthErrorAbort - if set to true, client opts out of the default connect behavior of aborting
+	// subsequent reconnect attempts if server returns the same auth error twice (regardless of reconnect policy).
+	IgnoreAuthErrorAbort bool
+
+	// SkipHostLookup skips the DNS lookup for the server hostname.
+	SkipHostLookup bool
+
+	// PermissionErrOnSubscribe - if set to true, the client will return ErrPermissionViolation
+	// from SubscribeSync if the server returns a permissions error for a subscription.
+	// Defaults to false.
+	PermissionErrOnSubscribe bool
+
+	// WebSocketConnectionHeaders is an optional http request headers to be sent with the WebSocket request.
+	WebSocketConnectionHeaders http.Header
+
+	// WebSocketConnectionHeadersHandler is an optional callback handler for generating token used for WebSocket connections.
+	WebSocketConnectionHeadersHandler WebSocketHeadersHandler
+
+	// SkipSubjectValidation will disable publish subject validation.
+	// NOTE: This is not recommended in general, as the performance gain is minimal
+	// and may lead to breaking protocol.
+	SkipSubjectValidation bool
+
+	// IgnoreDiscoveredServers will disable adding advertised server URLs
+	// from INFO messages to the server pool.
+	IgnoreDiscoveredServers bool
 }
 
 const (
@@ -509,37 +608,37 @@ type Conn struct {
 	mu sync.RWMutex
 	// Opts holds the configuration of the Conn.
 	// Modifying the configuration of a running Conn is a race.
-	Opts    Options
-	wg      sync.WaitGroup
-	srvPool []*srv
-	current *srv
-	urls    map[string]struct{} // Keep track of all known URLs (used by processInfo)
-	conn    net.Conn
-	bw      *natsWriter
-	br      *natsReader
-	fch     chan struct{}
-	info    serverInfo
-	ssid    int64
-	subsMu  sync.RWMutex
-	subs    map[int64]*Subscription
-	ach     *asyncCallbacksHandler
-	pongs   []chan struct{}
-	scratch [scratchSize]byte
-	status  Status
-	initc   bool // true if the connection is performing the initial connect
-	err     error
-	ps      *parseState
-	ptmr    *time.Timer
-	pout    int
-	ar      bool // abort reconnect
-	rqch    chan struct{}
-	ws      bool // true if a websocket connection
+	Opts          Options
+	wg            sync.WaitGroup
+	srvPool       []*Server
+	current       *Server
+	urls          map[string]struct{} // Keep track of all known URLs (used by processInfo)
+	conn          net.Conn
+	bw            *natsWriter
+	br            *natsReader
+	fch           chan struct{}
+	info          ServerInfo
+	ssid          int64
+	subsMu        sync.RWMutex
+	subs          map[int64]*Subscription
+	ach           *asyncCallbacksHandler
+	pongs         []chan struct{}
+	scratch       [scratchSize]byte
+	status        Status
+	statListeners map[Status]map[chan Status]struct{}
+	initc         bool // true if the connection is performing the initial connect
+	err           error
+	ps            *parseState
+	ptmr          *time.Timer
+	pout          int
+	ar            bool // abort reconnect
+	rqch          chan struct{}
+	ws            bool // true if a websocket connection
 
 	// New style response handler
 	respSub       string               // The wildcard subject
 	respSubPrefix string               // the wildcard prefix including trailing .
 	respSubLen    int                  // the length of the wildcard prefix excluding trailing .
-	respScanf     string               // The scanf template to extract mux token
 	respMux       *Subscription        // A single response subscription
 	respMap       map[string]chan *Msg // Request map for the response msg channels
 	respRand      *rand.Rand           // Used for generating suffix
@@ -581,14 +680,19 @@ type Subscription struct {
 	// For holding information about a JetStream consumer.
 	jsi *jsSub
 
-	delivered  uint64
-	max        uint64
-	conn       *Conn
-	mcb        MsgHandler
-	mch        chan *Msg
-	closed     bool
-	sc         bool
-	connClosed bool
+	delivered      uint64
+	max            uint64
+	conn           *Conn
+	mcb            MsgHandler
+	mch            chan *Msg
+	errCh          chan (error)
+	closed         bool
+	sc             bool
+	connClosed     bool
+	draining       bool
+	status         SubStatus
+	statListeners  map[chan SubStatus][]SubStatus
+	permissionsErr error
 
 	// Type of Subscription
 	typ SubscriptionType
@@ -597,7 +701,7 @@ type Subscription struct {
 	pHead *Msg
 	pTail *Msg
 	pCond *sync.Cond
-	pDone func()
+	pDone func(subject string)
 
 	// Pending stats, async subscriptions, high-speed etc.
 	pMsgs       int
@@ -609,34 +713,99 @@ type Subscription struct {
 	dropped     int
 }
 
+// Status represents the state of the connection.
+type SubStatus int
+
+const (
+	SubscriptionActive = SubStatus(iota)
+	SubscriptionDraining
+	SubscriptionClosed
+	SubscriptionSlowConsumer
+)
+
+func (s SubStatus) String() string {
+	switch s {
+	case SubscriptionActive:
+		return "Active"
+	case SubscriptionDraining:
+		return "Draining"
+	case SubscriptionClosed:
+		return "Closed"
+	case SubscriptionSlowConsumer:
+		return "SlowConsumer"
+	}
+	return "unknown status"
+}
+
 // Msg represents a message delivered by NATS. This structure is used
 // by Subscribers and PublishMsg().
 //
-// Types of Acknowledgements
+// # Types of Acknowledgements
 //
 // In case using JetStream, there are multiple ways to ack a Msg:
 //
-//   // Acknowledgement that a message has been processed.
-//   msg.Ack()
+//	// Acknowledgement that a message has been processed.
+//	msg.Ack()
 //
-//   // Negatively acknowledges a message.
-//   msg.Nak()
+//	// Negatively acknowledges a message.
+//	msg.Nak()
 //
-//   // Terminate a message so that it is not redelivered further.
-//   msg.Term()
+//	// Terminate a message so that it is not redelivered further.
+//	msg.Term()
 //
-//   // Signal the server that the message is being worked on and reset redelivery timer.
-//   msg.InProgress()
-//
+//	// Signal the server that the message is being worked on and reset redelivery timer.
+//	msg.InProgress()
 type Msg struct {
 	Subject string
 	Reply   string
 	Header  Header
 	Data    []byte
 	Sub     *Subscription
+	// Internal
 	next    *Msg
+	wsz     int
 	barrier *barrierInfo
 	ackd    uint32
+}
+
+// Compares two msgs, ignores sub but checks all other public fields.
+func (m *Msg) Equal(msg *Msg) bool {
+	if m == msg {
+		return true
+	}
+	if m == nil || msg == nil {
+		return false
+	}
+	if m.Subject != msg.Subject || m.Reply != msg.Reply {
+		return false
+	}
+	if !bytes.Equal(m.Data, msg.Data) {
+		return false
+	}
+	if len(m.Header) != len(msg.Header) {
+		return false
+	}
+	for k, v := range m.Header {
+		val, ok := msg.Header[k]
+		if !ok || len(v) != len(val) {
+			return false
+		}
+		for i, hdr := range v {
+			if hdr != val[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Size returns a message size in bytes.
+func (m *Msg) Size() int {
+	if m.wsz != 0 {
+		return m.wsz
+	}
+	hdr, _ := m.headerBytes()
+	return len(m.Subject) + len(m.Reply) + len(hdr) + len(m.Data)
 }
 
 func (m *Msg) headerBytes() ([]byte, error) {
@@ -679,18 +848,27 @@ type Statistics struct {
 	Reconnects uint64
 }
 
-// Tracks individual backend servers.
-type srv struct {
-	url        *url.URL
+// Server represents a server in the pool of servers that the client can connect to.
+type Server struct {
+	URL        *url.URL
+	Reconnects int
 	didConnect bool
-	reconnects int
 	lastErr    error
 	isImplicit bool
 	tlsName    string
 }
 
-// The INFO block received from the server.
-type serverInfo struct {
+func (s Server) clone() Server {
+	c := s
+	if s.URL != nil {
+		u := *s.URL
+		c.URL = &u
+	}
+	return c
+}
+
+// ServerInfo represents the information about the server that is sent in the INFO protocol message.
+type ServerInfo struct {
 	ID           string   `json:"server_id"`
 	Name         string   `json:"server_name"`
 	Proto        int      `json:"proto"`
@@ -771,9 +949,18 @@ func Name(name string) Option {
 	}
 }
 
+// InProcessServer is an Option that will try to establish a connection to a NATS server
+// running within the process instead of dialing via TCP.
+func InProcessServer(server InProcessConnProvider) Option {
+	return func(o *Options) error {
+		o.InProcessServer = server
+		return nil
+	}
+}
+
 // Secure is an Option to enable TLS secure connections that skip server verification by default.
 // Pass a TLS Configuration for proper TLS.
-// NOTE: This should NOT be used in a production setting.
+// A TLS Configuration using InsecureSkipVerify should NOT be used in a production setting.
 func Secure(tls ...*tls.Config) Option {
 	return func(o *Options) error {
 		o.Secure = true
@@ -788,25 +975,65 @@ func Secure(tls ...*tls.Config) Option {
 	}
 }
 
-// RootCAs is a helper option to provide the RootCAs pool from a list of filenames.
+// ClientTLSConfig is an Option to set the TLS configuration for secure
+// connections. It can be used to e.g. set TLS config with cert and root CAs
+// from memory. For simple use case of loading cert and CAs from file,
+// ClientCert and RootCAs options are more convenient.
 // If Secure is not already set this will set it as well.
-func RootCAs(file ...string) Option {
+func ClientTLSConfig(certCB TLSCertHandler, rootCAsCB RootCAsHandler) Option {
 	return func(o *Options) error {
-		pool := x509.NewCertPool()
-		for _, f := range file {
-			rootPEM, err := ioutil.ReadFile(f)
-			if err != nil || rootPEM == nil {
-				return fmt.Errorf("nats: error loading or parsing rootCA file: %v", err)
+		o.Secure = true
+
+		if certCB == nil && rootCAsCB == nil {
+			return ErrClientCertOrRootCAsRequired
+		}
+
+		// Smoke test the callbacks to fail early
+		// if they are not valid.
+		if certCB != nil {
+			if _, err := certCB(); err != nil {
+				return err
 			}
-			ok := pool.AppendCertsFromPEM(rootPEM)
-			if !ok {
-				return fmt.Errorf("nats: failed to parse root certificate from %q", f)
+		}
+		if rootCAsCB != nil {
+			if _, err := rootCAsCB(); err != nil {
+				return err
 			}
 		}
 		if o.TLSConfig == nil {
 			o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
-		o.TLSConfig.RootCAs = pool
+		o.TLSCertCB = certCB
+		o.RootCAsCB = rootCAsCB
+		return nil
+	}
+}
+
+// RootCAs is a helper option to provide the RootCAs pool from a list of filenames.
+// If Secure is not already set this will set it as well.
+func RootCAs(file ...string) Option {
+	return func(o *Options) error {
+		rootCAsCB := func() (*x509.CertPool, error) {
+			pool := x509.NewCertPool()
+			for _, f := range file {
+				rootPEM, err := os.ReadFile(f)
+				if err != nil || rootPEM == nil {
+					return nil, fmt.Errorf("nats: error loading or parsing rootCA file: %w", err)
+				}
+				ok := pool.AppendCertsFromPEM(rootPEM)
+				if !ok {
+					return nil, fmt.Errorf("nats: failed to parse root certificate from %q", f)
+				}
+			}
+			return pool, nil
+		}
+		if o.TLSConfig == nil {
+			o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
+		if _, err := rootCAsCB(); err != nil {
+			return err
+		}
+		o.RootCAsCB = rootCAsCB
 		o.Secure = true
 		return nil
 	}
@@ -816,18 +1043,24 @@ func RootCAs(file ...string) Option {
 // If Secure is not already set this will set it as well.
 func ClientCert(certFile, keyFile string) Option {
 	return func(o *Options) error {
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			return fmt.Errorf("nats: error loading client certificate: %v", err)
-		}
-		cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
-		if err != nil {
-			return fmt.Errorf("nats: error parsing client certificate: %v", err)
+		tlsCertCB := func() (tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			if err != nil {
+				return tls.Certificate{}, fmt.Errorf("nats: error loading client certificate: %w", err)
+			}
+			cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
+			if err != nil {
+				return tls.Certificate{}, fmt.Errorf("nats: error parsing client certificate: %w", err)
+			}
+			return cert, nil
 		}
 		if o.TLSConfig == nil {
 			o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
-		o.TLSConfig.Certificates = []tls.Certificate{cert}
+		if _, err := tlsCertCB(); err != nil {
+			return err
+		}
+		o.TLSCertCB = tlsCertCB
 		o.Secure = true
 		return nil
 	}
@@ -859,6 +1092,7 @@ func NoEcho() Option {
 }
 
 // ReconnectWait is an Option to set the wait time between reconnect attempts.
+// Defaults to 2s.
 func ReconnectWait(t time.Duration) Option {
 	return func(o *Options) error {
 		o.ReconnectWait = t
@@ -867,6 +1101,8 @@ func ReconnectWait(t time.Duration) Option {
 }
 
 // MaxReconnects is an Option to set the maximum number of reconnect attempts.
+// If negative, it will never stop trying to reconnect.
+// Defaults to 60.
 func MaxReconnects(max int) Option {
 	return func(o *Options) error {
 		o.MaxReconnect = max
@@ -875,6 +1111,7 @@ func MaxReconnects(max int) Option {
 }
 
 // ReconnectJitter is an Option to set the upper bound of a random delay added ReconnectWait.
+// Defaults to 100ms and 1s, respectively.
 func ReconnectJitter(jitter, jitterForTLS time.Duration) Option {
 	return func(o *Options) error {
 		o.ReconnectJitter = jitter
@@ -892,7 +1129,21 @@ func CustomReconnectDelay(cb ReconnectDelayHandler) Option {
 	}
 }
 
+// ReconnectToServer is an Option to set a custom server selection callback
+// for reconnection attempts. The callback receives a snapshot of available
+// servers and must return a server from the pool to connect to and a delay
+// duration before attempting the connection.
+//
+// See ReconnectToServerHandler for detailed documentation and usage examples.
+func ReconnectToServer(cb ReconnectToServerHandler) Option {
+	return func(o *Options) error {
+		o.ReconnectToServerCB = cb
+		return nil
+	}
+}
+
 // PingInterval is an Option to set the period for client ping commands.
+// Defaults to 2m.
 func PingInterval(t time.Duration) Option {
 	return func(o *Options) error {
 		o.PingInterval = t
@@ -902,6 +1153,7 @@ func PingInterval(t time.Duration) Option {
 
 // MaxPingsOutstanding is an Option to set the maximum number of ping requests
 // that can go unanswered by the server before closing the connection.
+// Defaults to 2.
 func MaxPingsOutstanding(max int) Option {
 	return func(o *Options) error {
 		o.MaxPingsOut = max
@@ -910,6 +1162,7 @@ func MaxPingsOutstanding(max int) Option {
 }
 
 // ReconnectBufSize sets the buffer size of messages kept while busy reconnecting.
+// Defaults to 8388608 bytes (8MB).  It can be disabled by setting it to -1.
 func ReconnectBufSize(size int) Option {
 	return func(o *Options) error {
 		o.ReconnectBufSize = size
@@ -918,6 +1171,7 @@ func ReconnectBufSize(size int) Option {
 }
 
 // Timeout is an Option to set the timeout for Dial on a connection.
+// Defaults to 2s.
 func Timeout(t time.Duration) Option {
 	return func(o *Options) error {
 		o.Timeout = t
@@ -934,6 +1188,7 @@ func FlusherTimeout(t time.Duration) Option {
 }
 
 // DrainTimeout is an Option to set the timeout for draining a connection.
+// Defaults to 30s.
 func DrainTimeout(t time.Duration) Option {
 	return func(o *Options) error {
 		o.DrainTimeout = t
@@ -950,10 +1205,18 @@ func DisconnectErrHandler(cb ConnErrHandler) Option {
 }
 
 // DisconnectHandler is an Option to set the disconnected handler.
-// DEPRECATED: Use DisconnectErrHandler.
+// Deprecated: Use DisconnectErrHandler.
 func DisconnectHandler(cb ConnHandler) Option {
 	return func(o *Options) error {
 		o.DisconnectedCB = cb
+		return nil
+	}
+}
+
+// ConnectHandler is an Option to set the connected handler.
+func ConnectHandler(cb ConnHandler) Option {
+	return func(o *Options) error {
+		o.ConnectedCB = cb
 		return nil
 	}
 }
@@ -962,6 +1225,14 @@ func DisconnectHandler(cb ConnHandler) Option {
 func ReconnectHandler(cb ConnHandler) Option {
 	return func(o *Options) error {
 		o.ReconnectedCB = cb
+		return nil
+	}
+}
+
+// ReconnectErrHandler is an Option to set the reconnect error handler.
+func ReconnectErrHandler(cb ConnErrHandler) Option {
+	return func(o *Options) error {
+		o.ReconnectErrCB = cb
 		return nil
 	}
 }
@@ -996,6 +1267,13 @@ func UserInfo(user, password string) Option {
 	return func(o *Options) error {
 		o.User = user
 		o.Password = password
+		return nil
+	}
+}
+
+func UserInfoHandler(cb UserInfoCB) Option {
+	return func(o *Options) error {
+		o.UserInfo = cb
 		return nil
 	}
 }
@@ -1044,6 +1322,57 @@ func UserCredentials(userOrChainedFile string, seedFiles ...string) Option {
 	return UserJWT(userCB, sigCB)
 }
 
+// UserCredentialBytes is a convenience function that takes the JWT and seed
+// values as byte slices. This allows passing credentials directly from memory
+// or environment variables without needing to write them to disk.
+func UserCredentialBytes(userOrChainedFileBytes []byte, seedFiles ...[]byte) Option {
+	userCB := func() (string, error) {
+		return nkeys.ParseDecoratedJWT(userOrChainedFileBytes)
+	}
+
+	var seedBytes []byte
+	if len(seedFiles) > 0 {
+		seedBytes = seedFiles[0]
+	} else {
+		seedBytes = userOrChainedFileBytes
+	}
+
+	sigCB := func(nonce []byte) ([]byte, error) {
+		kp, err := nkeys.ParseDecoratedNKey(seedBytes)
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract key pair from bytes: %w", err)
+		}
+		defer kp.Wipe()
+
+		sig, _ := kp.Sign(nonce)
+		return sig, nil
+	}
+
+	return UserJWT(userCB, sigCB)
+}
+
+// UserJWTAndSeed is a convenience function that takes the JWT and seed
+// values as strings.
+func UserJWTAndSeed(jwt string, seed string) Option {
+	userCB := func() (string, error) {
+		return jwt, nil
+	}
+
+	sigCB := func(nonce []byte) ([]byte, error) {
+		kp, err := nkeys.FromSeed([]byte(seed))
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract key pair from seed: %w", err)
+		}
+		// Wipe our key on exit.
+		defer kp.Wipe()
+
+		sig, _ := kp.Sign(nonce)
+		return sig, nil
+	}
+
+	return UserJWT(userCB, sigCB)
+}
+
 // UserJWT will set the callbacks to retrieve the user's JWT and
 // the signature callback to sign the server nonce. This an the Nkey
 // option are mutually exclusive.
@@ -1055,6 +1384,12 @@ func UserJWT(userCB UserJWTHandler, sigCB SignatureHandler) Option {
 		if sigCB == nil {
 			return ErrUserButNoSigCB
 		}
+		// Smoke test the user callback to ensure it is setup properly
+		// when processing options.
+		if _, err := userCB(); err != nil {
+			return err
+		}
+
 		o.UserJWT = userCB
 		o.SignatureCB = sigCB
 		return nil
@@ -1076,6 +1411,7 @@ func Nkey(pubKey string, sigCB SignatureHandler) Option {
 
 // SyncQueueLen will set the maximum queue len for the internal
 // channel used for SubscribeSync().
+// Defaults to 65536.
 func SyncQueueLen(max int) Option {
 	return func(o *Options) error {
 		o.SubChanLen = max
@@ -1085,7 +1421,7 @@ func SyncQueueLen(max int) Option {
 
 // Dialer is an Option to set the dialer which will be used when
 // attempting to establish a connection.
-// DEPRECATED: Should use CustomDialer instead.
+// Deprecated: Should use CustomDialer instead.
 func Dialer(dialer *net.Dialer) Option {
 	return func(o *Options) error {
 		o.Dialer = dialer
@@ -1164,9 +1500,97 @@ func ProxyPath(path string) Option {
 func CustomInboxPrefix(p string) Option {
 	return func(o *Options) error {
 		if p == "" || strings.Contains(p, ">") || strings.Contains(p, "*") || strings.HasSuffix(p, ".") {
-			return fmt.Errorf("nats: invald custom prefix")
+			return errors.New("nats: invalid custom prefix")
 		}
 		o.InboxPrefix = p
+		return nil
+	}
+}
+
+// IgnoreAuthErrorAbort opts out of the default connect behavior of aborting
+// subsequent reconnect attempts if server returns the same auth error twice.
+func IgnoreAuthErrorAbort() Option {
+	return func(o *Options) error {
+		o.IgnoreAuthErrorAbort = true
+		return nil
+	}
+}
+
+// SkipHostLookup is an Option to skip the host lookup when connecting to a server.
+func SkipHostLookup() Option {
+	return func(o *Options) error {
+		o.SkipHostLookup = true
+		return nil
+	}
+}
+
+func PermissionErrOnSubscribe(enabled bool) Option {
+	return func(o *Options) error {
+		o.PermissionErrOnSubscribe = enabled
+		return nil
+	}
+}
+
+// TLSHandshakeFirst is an Option to perform the TLS handshake first, that is
+// before receiving the INFO protocol. This requires the server to also be
+// configured with such option, otherwise the connection will fail.
+func TLSHandshakeFirst() Option {
+	return func(o *Options) error {
+		o.TLSHandshakeFirst = true
+		o.Secure = true
+		return nil
+	}
+}
+
+// WebSocketConnectionHeaders sets a fixed set of HTTP headers that will be
+// sent during the WebSocket connection handshake.
+// This option is mutually exclusive with WebSocketConnectionHeadersHandler;
+// if a headers handler has already been configured, it returns
+// ErrWebSocketHeadersAlreadySet.
+func WebSocketConnectionHeaders(headers http.Header) Option {
+	return func(o *Options) error {
+		if o.WebSocketConnectionHeadersHandler != nil {
+			return ErrWebSocketHeadersAlreadySet
+		}
+		o.WebSocketConnectionHeaders = headers
+		return nil
+	}
+}
+
+// WebSocketConnectionHeadersHandler registers a callback used to supply HTTP
+// headers for the WebSocket connection handshake.
+// This option is mutually exclusive with WebSocketConnectionHeaders; if
+// non-empty static headers have already been configured, it returns
+// ErrWebSocketHeadersAlreadySet.
+func WebSocketConnectionHeadersHandler(cb WebSocketHeadersHandler) Option {
+	return func(o *Options) error {
+		if len(o.WebSocketConnectionHeaders) != 0 {
+			return ErrWebSocketHeadersAlreadySet
+		}
+		o.WebSocketConnectionHeadersHandler = cb
+		return nil
+	}
+}
+
+// SkipSubjectValidation is an Option to skip subject validation when
+// publishing messages.
+// By default, subject validation is performed to ensure that subjects
+// are valid according to NATS subject syntax (no spaces newlines and tabs).
+// NOTE: It is not recommended to use this option as the performance gain
+// is minimal and disabling subject validation can lead to breaking protocol
+// rules.
+func SkipSubjectValidation() Option {
+	return func(o *Options) error {
+		o.SkipSubjectValidation = true
+		return nil
+	}
+}
+
+// IgnoreDiscoveredServers is an Option to disable adding advertised
+// server URLs from INFO messages to the server pool.
+func IgnoreDiscoveredServers() Option {
+	return func(o *Options) error {
+		o.IgnoreDiscoveredServers = true
 		return nil
 	}
 }
@@ -1174,7 +1598,7 @@ func CustomInboxPrefix(p string) Option {
 // Handler processing
 
 // SetDisconnectHandler will set the disconnect event handler.
-// DEPRECATED: Use SetDisconnectErrHandler
+// Deprecated: Use SetDisconnectErrHandler
 func (nc *Conn) SetDisconnectHandler(dcb ConnHandler) {
 	if nc == nil {
 		return
@@ -1194,6 +1618,16 @@ func (nc *Conn) SetDisconnectErrHandler(dcb ConnErrHandler) {
 	nc.Opts.DisconnectedErrCB = dcb
 }
 
+// DisconnectErrHandler will return the disconnect event handler.
+func (nc *Conn) DisconnectErrHandler() ConnErrHandler {
+	if nc == nil {
+		return nil
+	}
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return nc.Opts.DisconnectedErrCB
+}
+
 // SetReconnectHandler will set the reconnect event handler.
 func (nc *Conn) SetReconnectHandler(rcb ConnHandler) {
 	if nc == nil {
@@ -1202,6 +1636,16 @@ func (nc *Conn) SetReconnectHandler(rcb ConnHandler) {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
 	nc.Opts.ReconnectedCB = rcb
+}
+
+// ReconnectHandler will return the reconnect event handler.
+func (nc *Conn) ReconnectHandler() ConnHandler {
+	if nc == nil {
+		return nil
+	}
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return nc.Opts.ReconnectedCB
 }
 
 // SetDiscoveredServersHandler will set the discovered servers handler.
@@ -1214,6 +1658,16 @@ func (nc *Conn) SetDiscoveredServersHandler(dscb ConnHandler) {
 	nc.Opts.DiscoveredServersCB = dscb
 }
 
+// DiscoveredServersHandler will return the discovered servers handler.
+func (nc *Conn) DiscoveredServersHandler() ConnHandler {
+	if nc == nil {
+		return nil
+	}
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return nc.Opts.DiscoveredServersCB
+}
+
 // SetClosedHandler will set the closed event handler.
 func (nc *Conn) SetClosedHandler(cb ConnHandler) {
 	if nc == nil {
@@ -1222,6 +1676,16 @@ func (nc *Conn) SetClosedHandler(cb ConnHandler) {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
 	nc.Opts.ClosedCB = cb
+}
+
+// ClosedHandler will return the closed event handler.
+func (nc *Conn) ClosedHandler() ConnHandler {
+	if nc == nil {
+		return nil
+	}
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return nc.Opts.ClosedCB
 }
 
 // SetErrorHandler will set the async error handler.
@@ -1234,14 +1698,29 @@ func (nc *Conn) SetErrorHandler(cb ErrHandler) {
 	nc.Opts.AsyncErrorCB = cb
 }
 
+// ErrorHandler will return the async error handler.
+func (nc *Conn) ErrorHandler() ErrHandler {
+	if nc == nil {
+		return nil
+	}
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return nc.Opts.AsyncErrorCB
+}
+
 // Process the url string argument to Connect.
 // Return an array of urls, even if only one.
 func processUrlString(url string) []string {
 	urls := strings.Split(url, ",")
-	for i, s := range urls {
-		urls[i] = strings.TrimSpace(s)
+	var j int
+	for _, s := range urls {
+		u := strings.TrimSuffix(strings.TrimSpace(s), "/")
+		if len(u) > 0 {
+			urls[j] = u
+			j++
+		}
 	}
-	return urls
+	return urls[:j]
 }
 
 // Connect will attempt to connect to a NATS server with multiple options.
@@ -1282,6 +1761,12 @@ func (o Options) Connect() (*Conn, error) {
 		}
 	}
 
+	// If the TLSHandshakeFirst option is specified, make sure that
+	// the Secure boolean is true.
+	if nc.Opts.TLSHandshakeFirst {
+		nc.Opts.Secure = true
+	}
+
 	if err := nc.setupServerPool(); err != nil {
 		return nil, err
 	}
@@ -1298,12 +1783,22 @@ func (o Options) Connect() (*Conn, error) {
 	// Create reader/writer
 	nc.newReaderWriter()
 
-	if err := nc.connect(); err != nil {
+	// Spin up the async cb dispatcher before connect so it's ready
+	// to handle callbacks, especially when RetryOnFailedConnect is used
+	// and initial connection fails.
+	go nc.ach.asyncCBDispatcher()
+
+	connectionEstablished, err := nc.connect()
+	if err != nil {
+		nc.ach.close()
 		return nil, err
 	}
 
-	// Spin up the async cb dispatcher on success
-	go nc.ach.asyncCBDispatcher()
+	if connectionEstablished {
+		if connectedCB := nc.Opts.ConnectedCB; connectedCB != nil {
+			nc.ach.push(func() { connectedCB(nc) })
+		}
+	}
 
 	return nc, nil
 }
@@ -1359,7 +1854,7 @@ const (
 )
 
 // Return the currently selected server
-func (nc *Conn) currentServer() (int, *srv) {
+func (nc *Conn) currentServer() (int, *Server) {
 	for i, s := range nc.srvPool {
 		if s == nil {
 			continue
@@ -1373,7 +1868,7 @@ func (nc *Conn) currentServer() (int, *srv) {
 
 // Pop the current server and put onto the end of the list. Select head of list as long
 // as number of reconnect attempts under MaxReconnect.
-func (nc *Conn) selectNextServer() (*srv, error) {
+func (nc *Conn) selectNextServer() (*Server, error) {
 	i, s := nc.currentServer()
 	if i < 0 {
 		return nil, ErrNoServers
@@ -1382,7 +1877,7 @@ func (nc *Conn) selectNextServer() (*srv, error) {
 	num := len(sp)
 	copy(sp[i:num-1], sp[i+1:num])
 	maxReconnect := nc.Opts.MaxReconnect
-	if maxReconnect < 0 || s.reconnects < maxReconnect {
+	if maxReconnect < 0 || s.Reconnects < maxReconnect {
 		nc.srvPool[num-1] = s
 	} else {
 		nc.srvPool = sp[0 : num-1]
@@ -1418,7 +1913,7 @@ const tlsScheme = "tls"
 // Server Options. We will randomize the server pool unless
 // the NoRandomize flag is set.
 func (nc *Conn) setupServerPool() error {
-	nc.srvPool = make([]*srv, 0, srvPoolSize)
+	nc.srvPool = make([]*Server, 0, srvPoolSize)
 	nc.urls = make(map[string]struct{}, srvPoolSize)
 
 	// Create srv objects from each url string in nc.Opts.Servers
@@ -1455,7 +1950,7 @@ func (nc *Conn) setupServerPool() error {
 
 	// Check for Scheme hint to move to TLS mode.
 	for _, srv := range nc.srvPool {
-		if srv.url.Scheme == tlsScheme || srv.url.Scheme == wsSchemeTLS {
+		if srv.URL.Scheme == tlsScheme || srv.URL.Scheme == wsSchemeTLS {
 			// FIXME(dlc), this is for all in the pool, should be case by case.
 			nc.Opts.Secure = true
 			if nc.Opts.TLSConfig == nil {
@@ -1486,8 +1981,10 @@ func hostIsIP(u *url.URL) bool {
 	return net.ParseIP(u.Hostname()) != nil
 }
 
-// addURLToPool adds an entry to the server pool
-func (nc *Conn) addURLToPool(sURL string, implicit, saveTLSName bool) error {
+// parseServerURL parses a server URL string into a Server struct.
+// It handles scheme defaults and port defaults. Does not validate websocket consistency.
+// Returns the parsed Server and whether it's a websocket URL.
+func (nc *Conn) parseServerURL(sURL string, implicit, saveTLSName bool) (*Server, error) {
 	if !strings.Contains(sURL, "://") {
 		sURL = fmt.Sprintf("%s://%s", nc.connScheme(), sURL)
 	}
@@ -1498,7 +1995,7 @@ func (nc *Conn) addURLToPool(sURL string, implicit, saveTLSName bool) error {
 	for i := 0; i < 2; i++ {
 		u, err = url.Parse(sURL)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if u.Port() != "" {
 			break
@@ -1518,19 +2015,9 @@ func (nc *Conn) addURLToPool(sURL string, implicit, saveTLSName bool) error {
 		}
 	}
 
-	isWS := isWebsocketScheme(u)
-	// We don't support mix and match of websocket and non websocket URLs.
-	// If this is the first URL, then we accept and switch the global state
-	// to websocket. After that, we will know how to reject mixed URLs.
-	if len(nc.srvPool) == 0 {
-		nc.ws = isWS
-	} else if isWS && !nc.ws || !isWS && nc.ws {
-		return fmt.Errorf("mixing of websocket and non websocket URLs is not allowed")
-	}
-
 	var tlsName string
 	if implicit {
-		curl := nc.current.url
+		curl := nc.current.URL
 		// Check to see if we do not have a url.User but current connected
 		// url does. If so copy over.
 		if u.User == nil && curl.User != nil {
@@ -1544,9 +2031,29 @@ func (nc *Conn) addURLToPool(sURL string, implicit, saveTLSName bool) error {
 		}
 	}
 
-	s := &srv{url: u, isImplicit: implicit, tlsName: tlsName}
+	s := &Server{URL: u, isImplicit: implicit, tlsName: tlsName}
+	return s, nil
+}
+
+// addURLToPool adds an entry to the server pool
+func (nc *Conn) addURLToPool(sURL string, implicit, saveTLSName bool) error {
+	s, err := nc.parseServerURL(sURL, implicit, saveTLSName)
+	if err != nil {
+		return err
+	}
+
+	// We don't support mix and match of websocket and non websocket URLs.
+	// If this is the first URL, then we accept and switch the global state
+	// to websocket. After that, we will know how to reject mixed URLs.
+	isWS := isWebsocketScheme(s.URL)
+	if len(nc.srvPool) == 0 {
+		nc.ws = isWS
+	} else if isWS != nc.ws {
+		return ErrMixingWebsocketSchemes
+	}
+
 	nc.srvPool = append(nc.srvPool, s)
-	nc.urls[u.Host] = struct{}{}
+	nc.urls[s.URL.Host] = struct{}{}
 	return nil
 }
 
@@ -1728,11 +2235,23 @@ func (nc *Conn) createConn() (err error) {
 		return ErrNoServers
 	}
 
+	// If we have a reference to an in-process server then establish a
+	// connection using that.
+	if nc.Opts.InProcessServer != nil {
+		conn, err := nc.Opts.InProcessServer.InProcessConn()
+		if err != nil {
+			return fmt.Errorf("failed to get in-process connection: %w", err)
+		}
+		nc.conn = conn
+		nc.bindToNewConn()
+		return nil
+	}
+
 	// We will auto-expand host names if they resolve to multiple IPs
 	hosts := []string{}
-	u := nc.current.url
+	u := nc.current.URL
 
-	if net.ParseIP(u.Hostname()) == nil {
+	if !nc.Opts.SkipHostLookup && net.ParseIP(u.Hostname()) == nil {
 		addrs, _ := net.LookupHost(u.Hostname())
 		for _, addr := range addrs {
 			hosts = append(hosts, net.JoinHostPort(addr, u.Port()))
@@ -1779,21 +2298,44 @@ func (nc *Conn) createConn() (err error) {
 	return nil
 }
 
+type skipTLSDialer interface {
+	SkipTLSHandshake() bool
+}
+
 // makeTLSConn will wrap an existing Conn using TLS
 func (nc *Conn) makeTLSConn() error {
+	if nc.Opts.CustomDialer != nil {
+		// we do nothing when asked to skip the TLS wrapper
+		sd, ok := nc.Opts.CustomDialer.(skipTLSDialer)
+		if ok && sd.SkipTLSHandshake() {
+			return nil
+		}
+	}
 	// Allow the user to configure their own tls.Config structure.
-	var tlsCopy *tls.Config
+	tlsCopy := &tls.Config{}
 	if nc.Opts.TLSConfig != nil {
 		tlsCopy = util.CloneTLSConfig(nc.Opts.TLSConfig)
-	} else {
-		tlsCopy = &tls.Config{}
+	}
+	if nc.Opts.TLSCertCB != nil {
+		cert, err := nc.Opts.TLSCertCB()
+		if err != nil {
+			return err
+		}
+		tlsCopy.Certificates = []tls.Certificate{cert}
+	}
+	if nc.Opts.RootCAsCB != nil {
+		rootCAs, err := nc.Opts.RootCAsCB()
+		if err != nil {
+			return err
+		}
+		tlsCopy.RootCAs = rootCAs
 	}
 	// If its blank we will override it with the current host
 	if tlsCopy.ServerName == _EMPTY_ {
 		if nc.current.tlsName != _EMPTY_ {
 			tlsCopy.ServerName = nc.current.tlsName
 		} else {
-			h, _, _ := net.SplitHostPort(nc.current.url.Host)
+			h, _, _ := net.SplitHostPort(nc.current.URL.Host)
 			tlsCopy.ServerName = h
 		}
 	}
@@ -1804,6 +2346,24 @@ func (nc *Conn) makeTLSConn() error {
 	}
 	nc.bindToNewConn()
 	return nil
+}
+
+// TLSConnectionState retrieves the state of the TLS connection to the server
+func (nc *Conn) TLSConnectionState() (tls.ConnectionState, error) {
+	if !nc.isConnected() {
+		return tls.ConnectionState{}, ErrDisconnected
+	}
+
+	nc.mu.RLock()
+	conn := nc.conn
+	nc.mu.RUnlock()
+
+	tc, ok := conn.(*tls.Conn)
+	if !ok {
+		return tls.ConnectionState{}, ErrConnectionNotTLS
+	}
+
+	return tc.ConnectionState(), nil
 }
 
 // waitForExits will wait for all socket watcher Go routines to
@@ -1819,6 +2379,48 @@ func (nc *Conn) waitForExits() {
 	nc.wg.Wait()
 }
 
+// ForceReconnect forces a reconnect attempt to the server.
+// This is a non-blocking call and will start the reconnect
+// process without waiting for it to complete.
+//
+// If the connection is already in the process of reconnecting,
+// this call will force an immediate reconnect attempt (bypassing
+// the current reconnect delay).
+func (nc *Conn) ForceReconnect() error {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+
+	if nc.isClosed() {
+		return ErrConnectionClosed
+	}
+	if nc.isReconnecting() {
+		// if we're already reconnecting, force a reconnect attempt
+		// even if we're in the middle of a backoff
+		if nc.rqch != nil {
+			close(nc.rqch)
+			nc.rqch = nil
+		}
+		return nil
+	}
+
+	// Clear any queued pongs
+	nc.clearPendingFlushCalls()
+
+	// Clear any queued and blocking requests.
+	nc.clearPendingRequestCalls()
+
+	// Stop ping timer if set.
+	nc.stopPingTimer()
+
+	// Go ahead and make sure we have flushed the outbound
+	nc.bw.flush()
+	nc.conn.Close()
+
+	nc.changeConnStatus(RECONNECTING)
+	go nc.doReconnect(nil, true)
+	return nil
+}
+
 // ConnectedUrl reports the connected server's URL
 func (nc *Conn) ConnectedUrl() string {
 	if nc == nil {
@@ -1831,7 +2433,7 @@ func (nc *Conn) ConnectedUrl() string {
 	if nc.status != CONNECTED {
 		return _EMPTY_
 	}
-	return nc.current.url.String()
+	return nc.current.URL.String()
 }
 
 // ConnectedUrlRedacted reports the connected server's URL with passwords redacted
@@ -1846,7 +2448,7 @@ func (nc *Conn) ConnectedUrlRedacted() string {
 	if nc.status != CONNECTED {
 		return _EMPTY_
 	}
-	return nc.current.url.Redacted()
+	return nc.current.URL.Redacted()
 }
 
 // ConnectedAddr returns the connected server's IP
@@ -1862,6 +2464,21 @@ func (nc *Conn) ConnectedAddr() string {
 		return _EMPTY_
 	}
 	return nc.conn.RemoteAddr().String()
+}
+
+// LocalAddr returns the local network address of the connection
+func (nc *Conn) LocalAddr() string {
+	if nc == nil {
+		return _EMPTY_
+	}
+
+	nc.mu.RLock()
+	defer nc.mu.RUnlock()
+
+	if nc.status != CONNECTED {
+		return _EMPTY_
+	}
+	return nc.conn.LocalAddr().String()
 }
 
 // ConnectedServerId reports the connected server's Id
@@ -1970,13 +2587,20 @@ func (nc *Conn) setup() {
 
 // Process a connected connection and initialize properly.
 func (nc *Conn) processConnectInit() error {
-
 	// Set our deadline for the whole connect process
 	nc.conn.SetDeadline(time.Now().Add(nc.Opts.Timeout))
 	defer nc.conn.SetDeadline(time.Time{})
 
 	// Set our status to connecting.
-	nc.status = CONNECTING
+	nc.changeConnStatus(CONNECTING)
+
+	// If we need to have a TLS connection and want the TLS handshake to occur
+	// first, do it now.
+	if nc.Opts.Secure && nc.Opts.TLSHandshakeFirst {
+		if err := nc.makeTLSConn(); err != nil {
+			return err
+		}
+	}
 
 	// Process the INFO protocol received from the server
 	err := nc.processExpectedInfo()
@@ -2015,9 +2639,10 @@ func (nc *Conn) processConnectInit() error {
 	return nil
 }
 
-// Main connect function. Will connect to the nats-server
-func (nc *Conn) connect() error {
+// Main connect function. Will connect to the nats-server.
+func (nc *Conn) connect() (bool, error) {
 	var err error
+	var connectionEstablished bool
 
 	// Create actual socket connection
 	// For first connect we walk all servers in the pool and try
@@ -2038,7 +2663,7 @@ func (nc *Conn) connect() error {
 
 			if err == nil {
 				nc.current.didConnect = true
-				nc.current.reconnects = 0
+				nc.current.Reconnects = 0
 				nc.current.lastErr = nil
 				break
 			} else {
@@ -2063,18 +2688,19 @@ func (nc *Conn) connect() error {
 	}
 
 	if err == nil {
+		connectionEstablished = true
 		nc.initc = false
 	} else if nc.Opts.RetryOnFailedConnect {
 		nc.setup()
-		nc.status = RECONNECTING
+		nc.changeConnStatus(RECONNECTING)
 		nc.bw.switchToPending()
-		go nc.doReconnect(ErrNoServers)
+		go nc.doReconnect(err, false)
 		err = nil
 	} else {
 		nc.current = nil
 	}
 
-	return err
+	return connectionEstablished, err
 }
 
 // This will check to see if the connection should be
@@ -2092,8 +2718,13 @@ func (nc *Conn) checkForSecure() error {
 		o.Secure = true
 	}
 
-	// Need to rewrap with bufio
 	if o.Secure {
+		// If TLS handshake first is true, we have already done
+		// the handshake, so we are done here.
+		if o.TLSHandshakeFirst {
+			return nil
+		}
+		// Need to rewrap with bufio
 		if err := nc.makeTLSConn(); err != nil {
 			return err
 		}
@@ -2104,7 +2735,6 @@ func (nc *Conn) checkForSecure() error {
 // processExpectedInfo will look for the expected first INFO message
 // sent when a connection is established. The lock should be held entering.
 func (nc *Conn) processExpectedInfo() error {
-
 	c := &control{}
 
 	// Read the protocol
@@ -2150,7 +2780,7 @@ func (nc *Conn) sendProto(proto string) {
 func (nc *Conn) connectProto() (string, error) {
 	o := nc.Opts
 	var nkey, sig, user, pass, token, ujwt string
-	u := nc.current.url.User
+	u := nc.current.URL.User
 	if u != nil {
 		// if no password, assume username is authToken
 		if _, ok := u.Password(); !ok {
@@ -2165,6 +2795,13 @@ func (nc *Conn) connectProto() (string, error) {
 		pass = o.Password
 		token = o.Token
 		nkey = o.Nkey
+
+		if nc.Opts.UserInfo != nil {
+			if user != _EMPTY_ || pass != _EMPTY_ {
+				return _EMPTY_, ErrUserInfoAlreadySet
+			}
+			user, pass = nc.Opts.UserInfo()
+		}
 	}
 
 	// Look for user jwt.
@@ -2188,7 +2825,7 @@ func (nc *Conn) connectProto() (string, error) {
 		}
 		sigraw, err := o.SignatureCB([]byte(nc.info.Nonce))
 		if err != nil {
-			return _EMPTY_, fmt.Errorf("error signing nonce: %v", err)
+			return _EMPTY_, fmt.Errorf("error signing nonce: %w", err)
 		}
 		sig = base64.RawURLEncoding.EncodeToString(sigraw)
 	}
@@ -2202,8 +2839,10 @@ func (nc *Conn) connectProto() (string, error) {
 
 	// If our server does not support headers then we can't do them or no responders.
 	hdrs := nc.info.Headers
-	cinfo := connectInfo{o.Verbose, o.Pedantic, ujwt, nkey, sig, user, pass, token,
-		o.Secure, o.Name, LangString, Version, clientProtoInfo, !o.NoEcho, hdrs, hdrs}
+	cinfo := connectInfo{
+		o.Verbose, o.Pedantic, ujwt, nkey, sig, user, pass, token,
+		o.Secure, o.Name, LangString, Version, clientProtoInfo, !o.NoEcho, hdrs, hdrs,
+	}
 
 	b, err := json.Marshal(cinfo)
 	if err != nil {
@@ -2225,6 +2864,19 @@ func normalizeErr(line string) string {
 	return s
 }
 
+// natsProtoErr represents an -ERR protocol message sent by the server.
+type natsProtoErr struct {
+	description string
+}
+
+func (nerr *natsProtoErr) Error() string {
+	return fmt.Sprintf("nats: %s", nerr.description)
+}
+
+func (nerr *natsProtoErr) Is(err error) bool {
+	return strings.ToLower(nerr.Error()) == err.Error()
+}
+
 // Send a connect protocol message to the server, issue user/password if
 // applicable. Will wait for a flush to return from the server for error
 // processing.
@@ -2232,6 +2884,11 @@ func (nc *Conn) sendConnect() error {
 	// Construct the CONNECT protocol string
 	cProto, err := nc.connectProto()
 	if err != nil {
+		if !nc.initc {
+			if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+				nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
+			}
+		}
 		return err
 	}
 
@@ -2246,6 +2903,11 @@ func (nc *Conn) sendConnect() error {
 	// reading byte-by-byte here is ok.
 	proto, err := nc.readProto()
 	if err != nil {
+		if !nc.initc {
+			if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+				nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
+			}
+		}
 		return err
 	}
 
@@ -2254,6 +2916,11 @@ func (nc *Conn) sendConnect() error {
 		// Read the rest now...
 		proto, err = nc.readProto()
 		if err != nil {
+			if !nc.initc {
+				if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+					nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
+				}
+			}
 			return err
 		}
 	}
@@ -2279,8 +2946,7 @@ func (nc *Conn) sendConnect() error {
 				// in doReconnect()).
 				nc.processAuthError(authErr)
 			}
-
-			return errors.New("nats: " + proto)
+			return &natsProtoErr{proto}
 		}
 
 		// Notify that we got an unexpected protocol.
@@ -2288,7 +2954,7 @@ func (nc *Conn) sendConnect() error {
 	}
 
 	// This is where we are truly connected.
-	nc.status = CONNECTED
+	nc.changeConnStatus(CONNECTED)
 
 	return nil
 }
@@ -2342,7 +3008,7 @@ func (nc *Conn) stopPingTimer() {
 
 // Try to reconnect using the option parameters.
 // This function assumes we are allowed to reconnect.
-func (nc *Conn) doReconnect(err error) {
+func (nc *Conn) doReconnect(err error, forceReconnect bool) {
 	// We want to make sure we have the other watchers shutdown properly
 	// here before we proceed past this point.
 	nc.waitForExits()
@@ -2357,13 +3023,20 @@ func (nc *Conn) doReconnect(err error) {
 
 	// Clear any errors.
 	nc.err = nil
+
 	// Perform appropriate callback if needed for a disconnect.
 	// DisconnectedErrCB has priority over deprecated DisconnectedCB
 	if !nc.initc {
-		if nc.Opts.DisconnectedErrCB != nil {
-			nc.ach.push(func() { nc.Opts.DisconnectedErrCB(nc, err) })
-		} else if nc.Opts.DisconnectedCB != nil {
-			nc.ach.push(func() { nc.Opts.DisconnectedCB(nc) })
+		if disconnectedErrCB := nc.Opts.DisconnectedErrCB; disconnectedErrCB != nil {
+			nc.ach.push(func() { disconnectedErrCB(nc, err) })
+		} else if disconnectedCB := nc.Opts.DisconnectedCB; disconnectedCB != nil {
+			nc.ach.push(func() { disconnectedCB(nc) })
+		}
+	} else if nc.Opts.RetryOnFailedConnect && nc.initc && err != nil {
+		// For initial connection failure with RetryOnFailedConnect,
+		// report the error via ReconnectErrCB if available
+		if nc.Opts.ReconnectErrCB != nil {
+			nc.ach.push(func() { nc.Opts.ReconnectErrCB(nc, err) })
 		}
 	}
 
@@ -2373,6 +3046,16 @@ func (nc *Conn) doReconnect(err error) {
 	var rt *time.Timer
 	// Channel used to kick routine out of sleep when conn is closed.
 	rqch := nc.rqch
+
+	// if rqch is nil, we need to set it up to signal
+	// the reconnect loop to reconnect immediately
+	// this means that `ForceReconnect` was called
+	// before entering doReconnect
+	if rqch == nil {
+		rqch = make(chan struct{})
+		close(rqch)
+	}
+
 	// Counter that is increased when the whole list of servers has been tried.
 	var wlf int
 
@@ -2392,16 +3075,88 @@ func (nc *Conn) doReconnect(err error) {
 	}
 
 	for i := 0; len(nc.srvPool) > 0; {
-		cur, err := nc.selectNextServer()
-		if err != nil {
-			nc.err = err
-			break
+		var err error
+		var cur *Server
+		var callbackDelay time.Duration
+		var useCallbackDelay bool
+
+		if nc.Opts.ReconnectToServerCB != nil {
+			// Enforce MaxReconnect limits before calling the callback
+			maxReconnect := nc.Opts.MaxReconnect
+			if maxReconnect >= 0 {
+				// Remove servers that have exceeded MaxReconnect attempts
+				filtered := make([]*Server, 0, len(nc.srvPool))
+				for _, srv := range nc.srvPool {
+					if srv != nil && srv.Reconnects < maxReconnect {
+						filtered = append(filtered, srv)
+					}
+				}
+				nc.srvPool = filtered
+			}
+
+			// Check if we still have servers after filtering
+			if len(nc.srvPool) == 0 {
+				nc.err = ErrNoServers
+				break
+			}
+
+			// Copy server values to avoid caller modifying internal state
+			srvVals := make([]Server, len(nc.srvPool))
+			for idx, srv := range nc.srvPool {
+				if srv != nil {
+					srvVals[idx] = srv.clone()
+				}
+			}
+
+			var selectedSrv *Server
+			selectedSrv, callbackDelay = nc.Opts.ReconnectToServerCB(srvVals, nc.info)
+			if selectedSrv != nil {
+				idx := slices.IndexFunc(nc.srvPool, func(srv *Server) bool {
+					return srv != nil && srv.URL.String() == selectedSrv.URL.String()
+				})
+				if idx != -1 {
+					cur = nc.srvPool[idx]
+					nc.current = cur
+					useCallbackDelay = true
+				} else if reconnectErrCB := nc.Opts.ReconnectErrCB; reconnectErrCB != nil {
+					nc.ach.push(func() { reconnectErrCB(nc, ErrServerNotInPool) })
+				}
+			}
 		}
 
-		doSleep := i+1 >= len(nc.srvPool)
+		var doSleep bool
+		if cur == nil {
+			cur, err = nc.selectNextServer()
+			if err != nil {
+				nc.err = err
+				break
+			}
+			doSleep = i+1 >= len(nc.srvPool) && !forceReconnect
+		}
+
+		forceReconnect = false
 		nc.mu.Unlock()
 
-		if !doSleep {
+		if useCallbackDelay {
+			if callbackDelay > 0 {
+				i = 0
+				if rt == nil {
+					rt = time.NewTimer(callbackDelay)
+				} else {
+					rt.Reset(callbackDelay)
+				}
+				select {
+				case <-rqch:
+					rt.Stop()
+					nc.mu.Lock()
+					nc.rqch = make(chan struct{})
+					nc.mu.Unlock()
+				case <-rt.C:
+				}
+			} else {
+				runtime.Gosched()
+			}
+		} else if !doSleep {
 			i++
 			// Release the lock to give a chance to a concurrent nc.Close() to break the loop.
 			runtime.Gosched()
@@ -2425,6 +3180,12 @@ func (nc *Conn) doReconnect(err error) {
 			select {
 			case <-rqch:
 				rt.Stop()
+
+				// we need to reset the rqch channel to avoid
+				// closing a closed channel in the next iteration
+				nc.mu.Lock()
+				nc.rqch = make(chan struct{})
+				nc.mu.Unlock()
 			case <-rt.C:
 			}
 		}
@@ -2441,14 +3202,17 @@ func (nc *Conn) doReconnect(err error) {
 		}
 
 		// Mark that we tried a reconnect
-		cur.reconnects++
+		cur.Reconnects++
 
 		// Try to create a new connection
 		err = nc.createConn()
-
 		// Not yet connected, retry...
 		// Continue to hold the lock
 		if err != nil {
+			// Perform appropriate callback for a failed connection attempt.
+			if reconnectErrCB := nc.Opts.ReconnectErrCB; reconnectErrCB != nil {
+				nc.ach.push(func() { reconnectErrCB(nc, err) })
+			}
 			nc.err = nil
 			continue
 		}
@@ -2463,7 +3227,7 @@ func (nc *Conn) doReconnect(err error) {
 			if nc.ar {
 				break
 			}
-			nc.status = RECONNECTING
+			nc.changeConnStatus(RECONNECTING)
 			continue
 		}
 
@@ -2473,7 +3237,7 @@ func (nc *Conn) doReconnect(err error) {
 
 		// Clear out server stats for the server we connected to..
 		cur.didConnect = true
-		cur.reconnects = 0
+		cur.Reconnects = 0
 
 		// Send existing subscription state
 		nc.resendSubscriptions()
@@ -2481,7 +3245,7 @@ func (nc *Conn) doReconnect(err error) {
 		// Now send off and clear pending buffer
 		nc.err = nc.flushReconnectPendingItems()
 		if nc.err != nil {
-			nc.status = RECONNECTING
+			nc.changeConnStatus(RECONNECTING)
 			// Stop the ping timer (if set)
 			nc.stopPingTimer()
 			// Since processConnectInit() returned without error, the
@@ -2494,17 +3258,18 @@ func (nc *Conn) doReconnect(err error) {
 		// Done with the pending buffer
 		nc.bw.doneWithPending()
 
-		// This is where we are truly connected.
-		nc.status = CONNECTED
+		// Queue up the correct callback. If we are in initial connect state
+		// (using retry on failed connect), we will call the ConnectedCB,
+		// otherwise the ReconnectedCB.
+		if reconnectedCB := nc.Opts.ReconnectedCB; reconnectedCB != nil && !nc.initc {
+			nc.ach.push(func() { reconnectedCB(nc) })
+		} else if connectedCB := nc.Opts.ConnectedCB; connectedCB != nil && nc.initc {
+			nc.ach.push(func() { connectedCB(nc) })
+		}
 
 		// If we are here with a retry on failed connect, indicate that the
 		// initial connect is now complete.
 		nc.initc = false
-
-		// Queue up the reconnect callback.
-		if nc.Opts.ReconnectedCB != nil {
-			nc.ach.push(func() { nc.Opts.ReconnectedCB(nc) })
-		}
 
 		// Release lock here, we will return below.
 		nc.mu.Unlock()
@@ -2525,16 +3290,16 @@ func (nc *Conn) doReconnect(err error) {
 
 // processOpErr handles errors from reading or parsing the protocol.
 // The lock should not be held entering this function.
-func (nc *Conn) processOpErr(err error) {
+func (nc *Conn) processOpErr(err error) bool {
 	nc.mu.Lock()
+	defer nc.mu.Unlock()
 	if nc.isConnecting() || nc.isClosed() || nc.isReconnecting() {
-		nc.mu.Unlock()
-		return
+		return false
 	}
 
 	if nc.Opts.AllowReconnect && nc.status == CONNECTED {
 		// Set our new status
-		nc.status = RECONNECTING
+		nc.changeConnStatus(RECONNECTING)
 		// Stop ping timer if set
 		nc.stopPingTimer()
 		if nc.conn != nil {
@@ -2548,15 +3313,13 @@ func (nc *Conn) processOpErr(err error) {
 		// Clear any queued pongs, e.g. pending flush calls.
 		nc.clearPendingFlushCalls()
 
-		go nc.doReconnect(err)
-		nc.mu.Unlock()
-		return
+		go nc.doReconnect(err, false)
+		return false
 	}
 
-	nc.status = DISCONNECTED
+	nc.changeConnStatus(DISCONNECTED)
 	nc.err = err
-	nc.mu.Unlock()
-	nc.close(CLOSED, true, nil)
+	return true
 }
 
 // dispatch is responsible for calling any async callbacks
@@ -2653,7 +3416,9 @@ func (nc *Conn) readLoop() {
 			err = nc.parse(buf)
 		}
 		if err != nil {
-			nc.processOpErr(err)
+			if shouldClose := nc.processOpErr(err); shouldClose {
+				nc.close(CLOSED, true, nil)
+			}
 			break
 		}
 	}
@@ -2752,35 +3517,13 @@ func (nc *Conn) waitForMsgs(s *Subscription) {
 	s.mu.Unlock()
 
 	if done != nil {
-		done()
+		done(s.Subject)
 	}
 }
 
 // Used for debugging and simulating loss for certain tests.
 // Return what is to be used. If we return nil the message will be dropped.
 type msgFilter func(m *Msg) *Msg
-
-func (nc *Conn) addMsgFilter(subject string, filter msgFilter) {
-	nc.subsMu.Lock()
-	defer nc.subsMu.Unlock()
-
-	if nc.filters == nil {
-		nc.filters = make(map[string]msgFilter)
-	}
-	nc.filters[subject] = filter
-}
-
-func (nc *Conn) removeMsgFilter(subject string) {
-	nc.subsMu.Lock()
-	defer nc.subsMu.Unlock()
-
-	if nc.filters != nil {
-		delete(nc.filters, subject)
-		if len(nc.filters) == 0 {
-			nc.filters = nil
-		}
-	}
-}
 
 // processMsg is called by parse and will place the msg on the
 // appropriate channel/pending queue for processing. If the channel is full,
@@ -2814,7 +3557,7 @@ func (nc *Conn) processMsg(data []byte) {
 	// It's possible that we end-up not using the message, but that's ok.
 
 	// FIXME(dlc): Need to copy, should/can do COW?
-	var msgPayload = data
+	msgPayload := data
 	if !nc.ps.msgCopied {
 		msgPayload = make([]byte, len(data))
 		copy(msgPayload, data)
@@ -2830,20 +3573,27 @@ func (nc *Conn) processMsg(data []byte) {
 	if nc.ps.ma.hdr > 0 {
 		hbuf := msgPayload[:nc.ps.ma.hdr]
 		msgPayload = msgPayload[nc.ps.ma.hdr:]
-		h, err = decodeHeadersMsg(hbuf)
+		h, err = DecodeHeadersMsg(hbuf)
 		if err != nil {
 			// We will pass the message through but send async error.
 			nc.mu.Lock()
 			nc.err = ErrBadHeaderMsg
-			if nc.Opts.AsyncErrorCB != nil {
-				nc.ach.push(func() { nc.Opts.AsyncErrorCB(nc, sub, ErrBadHeaderMsg) })
+			if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+				nc.ach.push(func() { asyncErrorCB(nc, sub, ErrBadHeaderMsg) })
 			}
 			nc.mu.Unlock()
 		}
 	}
 
 	// FIXME(dlc): Should we recycle these containers?
-	m := &Msg{Header: h, Data: msgPayload, Subject: subj, Reply: reply, Sub: sub}
+	m := &Msg{
+		Subject: subj,
+		Reply:   reply,
+		Header:  h,
+		Data:    msgPayload,
+		Sub:     sub,
+		wsz:     len(data) + len(subj) + len(reply),
+	}
 
 	// Check for message filters.
 	if mf != nil {
@@ -2881,8 +3631,10 @@ func (nc *Conn) processMsg(data []byte) {
 		}
 	}
 
-	// Skip processing if this is a control message.
-	if !ctrlMsg {
+	// Skip processing if this is a control message and
+	// if not a pull consumer heartbeat. For pull consumers,
+	// heartbeats have to be handled on per request basis.
+	if !ctrlMsg || (jsi != nil && jsi.pull) {
 		var chanSubCheckFC bool
 		// Subscription internal stats (applicable only for non ChanSubscription's)
 		if sub.typ != ChanSubscription {
@@ -2909,6 +3661,10 @@ func (nc *Conn) processMsg(data []byte) {
 		if sub.mch != nil {
 			select {
 			case sub.mch <- m:
+				// For ChanSubscribe, track delivered count here
+				if sub.typ == ChanSubscription {
+					sub.delivered++
+				}
 			default:
 				goto slowConsumer
 			}
@@ -2953,6 +3709,9 @@ func (nc *Conn) processMsg(data []byte) {
 	}
 
 	// Clear any SlowConsumer status.
+	if sub.sc {
+		sub.changeSubStatus(SubscriptionActive)
+	}
 	sub.sc = false
 	sub.mu.Unlock()
 
@@ -2963,6 +3722,19 @@ func (nc *Conn) processMsg(data []byte) {
 	// Handle control heartbeat messages.
 	if ctrlMsg && ctrlType == jsCtrlHB && m.Reply == _EMPTY_ {
 		nc.checkForSequenceMismatch(m, sub, jsi)
+	}
+
+	// Check if we need to auto-unsubscribe for chan subscriptions
+	if sub.typ == ChanSubscription && sub.max > 0 && !ctrlMsg {
+		sub.mu.Lock()
+		if sub.delivered >= sub.max {
+			sub.mu.Unlock()
+			nc.mu.Lock()
+			nc.removeSub(sub)
+			nc.mu.Unlock()
+		} else {
+			sub.mu.Unlock()
+		}
 	}
 
 	return
@@ -2976,29 +3748,60 @@ slowConsumer:
 		sub.pMsgs--
 		sub.pBytes -= len(m.Data)
 	}
-	sub.mu.Unlock()
 	if sc {
+		sub.changeSubStatus(SubscriptionSlowConsumer)
+		sub.mu.Unlock()
 		// Now we need connection's lock and we may end-up in the situation
 		// that we were trying to avoid, except that in this case, the client
 		// is already experiencing client-side slow consumer situation.
 		nc.mu.Lock()
 		nc.err = ErrSlowConsumer
-		if nc.Opts.AsyncErrorCB != nil {
-			nc.ach.push(func() { nc.Opts.AsyncErrorCB(nc, sub, ErrSlowConsumer) })
+		if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+			nc.ach.push(func() { asyncErrorCB(nc, sub, ErrSlowConsumer) })
 		}
 		nc.mu.Unlock()
+	} else {
+		sub.mu.Unlock()
 	}
 }
 
-// processPermissionsViolation is called when the server signals a subject
-// permissions violation on either publish or subscribe.
-func (nc *Conn) processPermissionsViolation(err string) {
+var (
+	permissionsRe      = regexp.MustCompile(`Subscription to "(\S+)"`)
+	permissionsQueueRe = regexp.MustCompile(`using queue "(\S+)"`)
+)
+
+// processTransientError is called when the server signals a non terminal error
+// which does not close the connection or trigger a reconnect.
+// This will trigger the async error callback if set.
+// These errors include the following:
+// - permissions violation on publish or subscribe
+// - maximum subscriptions exceeded
+func (nc *Conn) processTransientError(err error) {
 	nc.mu.Lock()
-	// create error here so we can pass it as a closure to the async cb dispatcher.
-	e := errors.New("nats: " + err)
-	nc.err = e
-	if nc.Opts.AsyncErrorCB != nil {
-		nc.ach.push(func() { nc.Opts.AsyncErrorCB(nc, nil, e) })
+	nc.err = err
+	if errors.Is(err, ErrPermissionViolation) {
+		matches := permissionsRe.FindStringSubmatch(err.Error())
+		if len(matches) >= 2 {
+			queueMatches := permissionsQueueRe.FindStringSubmatch(err.Error())
+			var q string
+			if len(queueMatches) >= 2 {
+				q = queueMatches[1]
+			}
+			subject := matches[1]
+			for _, sub := range nc.subs {
+				if sub.Subject == subject && sub.Queue == q && sub.permissionsErr == nil {
+					sub.mu.Lock()
+					if sub.errCh != nil {
+						sub.errCh <- err
+					}
+					sub.permissionsErr = err
+					sub.mu.Unlock()
+				}
+			}
+		}
+	}
+	if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+		nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
 	}
 	nc.mu.Unlock()
 }
@@ -3010,12 +3813,14 @@ func (nc *Conn) processPermissionsViolation(err string) {
 // Connection lock is held on entry
 func (nc *Conn) processAuthError(err error) bool {
 	nc.err = err
-	if !nc.initc && nc.Opts.AsyncErrorCB != nil {
-		nc.ach.push(func() { nc.Opts.AsyncErrorCB(nc, nil, err) })
+	if !nc.initc {
+		if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+			nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
+		}
 	}
 	// We should give up if we tried twice on this server and got the
-	// same error.
-	if nc.current.lastErr == err {
+	// same error. This behavior can be modified using IgnoreAuthErrorAbort.
+	if nc.current.lastErr == err && !nc.Opts.IgnoreAuthErrorAbort {
 		nc.ar = true
 	} else {
 		nc.current.lastErr = err
@@ -3055,6 +3860,9 @@ func (nc *Conn) flusher() {
 			if err := bw.flush(); err != nil {
 				if nc.err == nil {
 					nc.err = err
+				}
+				if asyncErrorCB := nc.Opts.AsyncErrorCB; asyncErrorCB != nil {
+					nc.ach.push(func() { asyncErrorCB(nc, nil, err) })
 				}
 			}
 		}
@@ -3097,7 +3905,7 @@ func (nc *Conn) processInfo(info string) error {
 	if info == _EMPTY_ {
 		return nil
 	}
-	var ncInfo serverInfo
+	var ncInfo ServerInfo
 	if err := json.Unmarshal([]byte(info), &ncInfo); err != nil {
 		return err
 	}
@@ -3108,7 +3916,7 @@ func (nc *Conn) processInfo(info string) error {
 	// if advertise is disabled on that server, or servers that
 	// did not include themselves in the async INFO protocol.
 	// If empty, do not remove the implicit servers from the pool.
-	if len(nc.info.ConnectURLs) == 0 {
+	if len(nc.info.ConnectURLs) == 0 || nc.Opts.IgnoreDiscoveredServers {
 		if !nc.initc && ncInfo.LameDuckMode && nc.Opts.LameDuckModeHandler != nil {
 			nc.ach.push(func() { nc.Opts.LameDuckModeHandler(nc) })
 		}
@@ -3131,7 +3939,7 @@ func (nc *Conn) processInfo(info string) error {
 	sp := nc.srvPool
 	for i := 0; i < len(sp); i++ {
 		srv := sp[i]
-		curl := srv.url.Host
+		curl := srv.URL.Host
 		// Check if this URL is in the INFO protocol
 		_, inInfo := tmp[curl]
 		// Remove from the temp map so that at the end we are left with only
@@ -3139,7 +3947,7 @@ func (nc *Conn) processInfo(info string) error {
 		delete(tmp, curl)
 		// Keep servers that were set through Options, but also the one that
 		// we are currently connected to (even if it is a discovered server).
-		if !srv.isImplicit || srv.url == nc.current.url {
+		if !srv.isImplicit || srv.URL == nc.current.URL {
 			continue
 		}
 		if !inInfo {
@@ -3151,7 +3959,7 @@ func (nc *Conn) processInfo(info string) error {
 		}
 	}
 	// Figure out if we should save off the current non-IP hostname if we encounter a bare IP.
-	saveTLS := nc.current != nil && !hostIsIP(nc.current.url)
+	saveTLS := nc.current != nil && !hostIsIP(nc.current.URL)
 
 	// If there are any left in the tmp map, these are new (or restarted) servers
 	// and need to be added to the pool.
@@ -3168,12 +3976,16 @@ func (nc *Conn) processInfo(info string) error {
 		if !nc.Opts.NoRandomize {
 			nc.shufflePool(1)
 		}
-		if !nc.initc && nc.Opts.DiscoveredServersCB != nil {
-			nc.ach.push(func() { nc.Opts.DiscoveredServersCB(nc) })
+		if !nc.initc {
+			if discoveredServersCB := nc.Opts.DiscoveredServersCB; discoveredServersCB != nil {
+				nc.ach.push(func() { discoveredServersCB(nc) })
+			}
 		}
 	}
-	if !nc.initc && ncInfo.LameDuckMode && nc.Opts.LameDuckModeHandler != nil {
-		nc.ach.push(func() { nc.Opts.LameDuckModeHandler(nc) })
+	if !nc.initc && ncInfo.LameDuckMode {
+		if lameDuckModeHandler := nc.Opts.LameDuckModeHandler; lameDuckModeHandler != nil {
+			nc.ach.push(func() { lameDuckModeHandler(nc) })
+		}
 	}
 	return nil
 }
@@ -3227,15 +4039,19 @@ func (nc *Conn) processErr(ie string) {
 	// convert to lower case.
 	e := strings.ToLower(ne)
 
-	close := false
+	var close bool
 
 	// FIXME(dlc) - process Slow Consumer signals special.
 	if e == STALE_CONNECTION {
-		nc.processOpErr(ErrStaleConnection)
+		close = nc.processOpErr(ErrStaleConnection)
 	} else if e == MAX_CONNECTIONS_ERR {
-		nc.processOpErr(ErrMaxConnectionsExceeded)
+		close = nc.processOpErr(ErrMaxConnectionsExceeded)
+	} else if e == MAX_ACCOUNT_CONNECTIONS_ERR {
+		close = nc.processOpErr(ErrMaxAccountConnectionsExceeded)
 	} else if strings.HasPrefix(e, PERMISSIONS_ERR) {
-		nc.processPermissionsViolation(ne)
+		nc.processTransientError(fmt.Errorf("%w: %s", ErrPermissionViolation, ne))
+	} else if strings.HasPrefix(e, MAX_SUBSCRIPTIONS_ERR) {
+		nc.processTransientError(ErrMaxSubscriptionsExceeded)
 	} else if authErr := checkAuthError(e); authErr != nil {
 		nc.mu.Lock()
 		close = nc.processAuthError(authErr)
@@ -3266,7 +4082,7 @@ func (nc *Conn) kickFlusher() {
 // argument is left untouched and needs to be correctly interpreted on
 // the receiver.
 func (nc *Conn) Publish(subj string, data []byte) error {
-	return nc.publish(subj, _EMPTY_, nil, data)
+	return nc.publish(subj, _EMPTY_, false, nil, data)
 }
 
 // Header represents the optional Header for a NATS message,
@@ -3330,13 +4146,15 @@ const (
 	noResponders       = "503"
 	noMessagesSts      = "404"
 	reqTimeoutSts      = "408"
+	jetStream409Sts    = "409"
 	controlMsg         = "100"
 	statusLen          = 3 // e.g. 20x, 40x, 50x
 )
 
-// decodeHeadersMsg will decode and headers.
-func decodeHeadersMsg(data []byte) (Header, error) {
-	tp := textproto.NewReader(bufio.NewReader(bytes.NewReader(data)))
+// DecodeHeadersMsg will decode and headers.
+func DecodeHeadersMsg(data []byte) (Header, error) {
+	br := bufio.NewReaderSize(bytes.NewReader(data), 128)
+	tp := textproto.NewReader(br)
 	l, err := tp.ReadLine()
 	if err != nil || len(l) < hdrPreEnd || l[:hdrPreEnd] != hdrLine[:hdrPreEnd] {
 		return nil, ErrBadHeaderMsg
@@ -3377,7 +4195,7 @@ func readMIMEHeader(tp *textproto.Reader) (textproto.MIMEHeader, error) {
 		}
 
 		// Process key fetching original case.
-		i := bytes.IndexByte([]byte(kv), ':')
+		i := strings.IndexByte(kv, ':')
 		if i < 0 {
 			return nil, ErrBadHeaderMsg
 		}
@@ -3390,8 +4208,7 @@ func readMIMEHeader(tp *textproto.Reader) (textproto.MIMEHeader, error) {
 		for i < len(kv) && (kv[i] == ' ' || kv[i] == '\t') {
 			i++
 		}
-		value := string(kv[i:])
-		m[key] = append(m[key], value)
+		m[key] = append(m[key], kv[i:])
 		if err != nil {
 			return m, err
 		}
@@ -3408,27 +4225,71 @@ func (nc *Conn) PublishMsg(m *Msg) error {
 	if err != nil {
 		return err
 	}
-	return nc.publish(m.Subject, m.Reply, hdr, m.Data)
+	validateReply := m.Reply != _EMPTY_
+	return nc.publish(m.Subject, m.Reply, validateReply, hdr, m.Data)
 }
 
 // PublishRequest will perform a Publish() expecting a response on the
 // reply subject. Use Request() for automatically waiting for a response
 // inline.
 func (nc *Conn) PublishRequest(subj, reply string, data []byte) error {
-	return nc.publish(subj, reply, nil, data)
+	return nc.publish(subj, reply, true, nil, data)
 }
 
 // Used for handrolled Itoa
 const digits = "0123456789"
 
+// validateSubject checks if the subject contains characters that break the NATS protocol.
+// Uses an adaptive algorithm: manual loop for short subjects (< 16 chars) and
+// SIMD-optimized strings.IndexByte for longer subjects.
+func validateSubject(subj string) error {
+	if subj == "" {
+		return ErrBadSubject
+	}
+
+	// Adaptive threshold based on benchmark data showing crossover at ~15-20 characters.
+	const lengthThreshold = 16
+
+	if len(subj) < lengthThreshold {
+		// Fast path for short subjects (< 16 chars)
+		// Short-circuit on non-control characters.
+		for i := range len(subj) {
+			c := subj[i]
+			if c <= ' ' && (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+				return ErrBadSubject
+			}
+		}
+		return nil
+	}
+
+	// Optimized path for long subjects (>= 16 chars)
+	// Uses SIMD-optimized strings.IndexByte (processes 16+ bytes per instruction)
+	if strings.IndexByte(subj, ' ') >= 0 ||
+		strings.IndexByte(subj, '\t') >= 0 ||
+		strings.IndexByte(subj, '\r') >= 0 ||
+		strings.IndexByte(subj, '\n') >= 0 {
+		return ErrBadSubject
+	}
+	return nil
+}
+
 // publish is the internal function to publish messages to a nats-server.
 // Sends a protocol data message by queuing into the bufio writer
 // and kicking the flush go routine. These writes should be protected.
-func (nc *Conn) publish(subj, reply string, hdr, data []byte) error {
+func (nc *Conn) publish(subj, reply string, validateReply bool, hdr, data []byte) error {
 	if nc == nil {
 		return ErrInvalidConnection
 	}
-	if subj == "" {
+	if !nc.Opts.SkipSubjectValidation {
+		if err := validateSubject(subj); err != nil {
+			return err
+		}
+		if validateReply {
+			if err := validateSubject(reply); err != nil {
+				return ErrBadSubject
+			}
+		}
+	} else if subj == _EMPTY_ {
 		return ErrBadSubject
 	}
 	nc.mu.Lock()
@@ -3484,7 +4345,7 @@ func (nc *Conn) publish(subj, reply string, hdr, data []byte) error {
 	// go 1.14 some values strconv faster, may be able to switch over.
 
 	var b [12]byte
-	var i = len(b)
+	i := len(b)
 
 	if hdr != nil {
 		if len(hdr) > 0 {
@@ -3575,10 +4436,6 @@ func (nc *Conn) respHandler(m *Msg) {
 // Helper to setup and send new request style requests. Return the chan to receive the response.
 func (nc *Conn) createNewRequestAndSend(subj string, hdr, data []byte) (chan *Msg, string, error) {
 	nc.mu.Lock()
-	// Do setup for the new style if needed.
-	if nc.respMap == nil {
-		nc.initNewResp()
-	}
 	// Create new literal Inbox and map to a chan msg.
 	mch := make(chan *Msg, RequestChanLen)
 	respInbox := nc.newRespInbox()
@@ -3589,17 +4446,16 @@ func (nc *Conn) createNewRequestAndSend(subj string, hdr, data []byte) (chan *Ms
 		// Create the response subscription we will use for all new style responses.
 		// This will be on an _INBOX with an additional terminal token. The subscription
 		// will be on a wildcard.
-		s, err := nc.subscribeLocked(nc.respSub, _EMPTY_, nc.respHandler, nil, false, nil)
+		s, err := nc.subscribeLocked(nc.respSub, _EMPTY_, nc.respHandler, nil, nil, false, nil)
 		if err != nil {
 			nc.mu.Unlock()
 			return nil, token, err
 		}
-		nc.respScanf = strings.Replace(nc.respSub, "*", "%s", -1)
 		nc.respMux = s
 	}
 	nc.mu.Unlock()
 
-	if err := nc.publish(subj, respInbox, hdr, data); err != nil {
+	if err := nc.publish(subj, respInbox, false, hdr, data); err != nil {
 		return nil, token, err
 	}
 
@@ -3685,17 +4541,17 @@ func (nc *Conn) newRequest(subj string, hdr, data []byte, timeout time.Duration)
 // with the Inbox reply and return the first reply received.
 // This is optimized for the case of multiple responses.
 func (nc *Conn) oldRequest(subj string, hdr, data []byte, timeout time.Duration) (*Msg, error) {
-	inbox := nc.newInbox()
+	inbox := nc.NewInbox()
 	ch := make(chan *Msg, RequestChanLen)
 
-	s, err := nc.subscribe(inbox, _EMPTY_, nil, ch, true, nil)
+	s, err := nc.subscribe(inbox, _EMPTY_, nil, ch, nil, true, nil)
 	if err != nil {
 		return nil, err
 	}
 	s.AutoUnsubscribe(1)
 	defer s.Unsubscribe()
 
-	err = nc.publish(subj, inbox, hdr, data)
+	err = nc.publish(subj, inbox, false, hdr, data)
 	if err != nil {
 		return nil, err
 	}
@@ -3724,7 +4580,8 @@ func NewInbox() string {
 	return string(b[:])
 }
 
-func (nc *Conn) newInbox() string {
+// Create a new inbox that is prefix aware.
+func (nc *Conn) NewInbox() string {
 	if nc.Opts.InboxPrefix == _EMPTY_ {
 		return NewInbox()
 	}
@@ -3738,7 +4595,7 @@ func (nc *Conn) newInbox() string {
 
 // Function to init new response structures.
 func (nc *Conn) initNewResp() {
-	nc.respSubPrefix = fmt.Sprintf("%s.", nc.newInbox())
+	nc.respSubPrefix = fmt.Sprintf("%s.", nc.NewInbox())
 	nc.respSubLen = len(nc.respSubPrefix)
 	nc.respSub = fmt.Sprintf("%s*", nc.respSubPrefix)
 	nc.respMap = make(map[string]chan *Msg)
@@ -3774,16 +4631,14 @@ func (nc *Conn) NewRespInbox() string {
 }
 
 // respToken will return the last token of a literal response inbox
-// which we use for the message channel lookup. This needs to do a
-// scan to protect itself against the server changing the subject.
+// which we use for the message channel lookup. This needs to verify the subject
+// prefix matches to protect itself against the server changing the subject.
 // Lock should be held.
 func (nc *Conn) respToken(respInbox string) string {
-	var token string
-	n, err := fmt.Sscanf(respInbox, nc.respScanf, &token)
-	if err != nil || n != 1 {
-		return ""
+	if token, found := strings.CutPrefix(respInbox, nc.respSubPrefix); found {
+		return token
 	}
-	return token
+	return ""
 }
 
 // Subscribe will express interest in the given subject. The subject
@@ -3795,14 +4650,14 @@ func (nc *Conn) respToken(respInbox string) string {
 // since it can't match more than one token.
 // Messages will be delivered to the associated MsgHandler.
 func (nc *Conn) Subscribe(subj string, cb MsgHandler) (*Subscription, error) {
-	return nc.subscribe(subj, _EMPTY_, cb, nil, false, nil)
+	return nc.subscribe(subj, _EMPTY_, cb, nil, nil, false, nil)
 }
 
 // ChanSubscribe will express interest in the given subject and place
 // all messages received on the channel.
 // You should not close the channel until sub.Unsubscribe() has been called.
 func (nc *Conn) ChanSubscribe(subj string, ch chan *Msg) (*Subscription, error) {
-	return nc.subscribe(subj, _EMPTY_, nil, ch, false, nil)
+	return nc.subscribe(subj, _EMPTY_, nil, ch, nil, false, nil)
 }
 
 // ChanQueueSubscribe will express interest in the given subject.
@@ -3812,7 +4667,7 @@ func (nc *Conn) ChanSubscribe(subj string, ch chan *Msg) (*Subscription, error) 
 // You should not close the channel until sub.Unsubscribe() has been called.
 // Note: This is the same than QueueSubscribeSyncWithChan.
 func (nc *Conn) ChanQueueSubscribe(subj, group string, ch chan *Msg) (*Subscription, error) {
-	return nc.subscribe(subj, group, nil, ch, false, nil)
+	return nc.subscribe(subj, group, nil, ch, nil, false, nil)
 }
 
 // SubscribeSync will express interest on the given subject. Messages will
@@ -3822,7 +4677,11 @@ func (nc *Conn) SubscribeSync(subj string) (*Subscription, error) {
 		return nil, ErrInvalidConnection
 	}
 	mch := make(chan *Msg, nc.Opts.SubChanLen)
-	return nc.subscribe(subj, _EMPTY_, nil, mch, true, nil)
+	var errCh chan error
+	if nc.Opts.PermissionErrOnSubscribe {
+		errCh = make(chan error, 100)
+	}
+	return nc.subscribe(subj, _EMPTY_, nil, mch, errCh, true, nil)
 }
 
 // QueueSubscribe creates an asynchronous queue subscriber on the given subject.
@@ -3830,7 +4689,7 @@ func (nc *Conn) SubscribeSync(subj string) (*Subscription, error) {
 // only one member of the group will be selected to receive any given
 // message asynchronously.
 func (nc *Conn) QueueSubscribe(subj, queue string, cb MsgHandler) (*Subscription, error) {
-	return nc.subscribe(subj, queue, cb, nil, false, nil)
+	return nc.subscribe(subj, queue, cb, nil, nil, false, nil)
 }
 
 // QueueSubscribeSync creates a synchronous queue subscriber on the given
@@ -3839,7 +4698,11 @@ func (nc *Conn) QueueSubscribe(subj, queue string, cb MsgHandler) (*Subscription
 // given message synchronously using Subscription.NextMsg().
 func (nc *Conn) QueueSubscribeSync(subj, queue string) (*Subscription, error) {
 	mch := make(chan *Msg, nc.Opts.SubChanLen)
-	return nc.subscribe(subj, queue, nil, mch, true, nil)
+	var errCh chan error
+	if nc.Opts.PermissionErrOnSubscribe {
+		errCh = make(chan error, 100)
+	}
+	return nc.subscribe(subj, queue, nil, mch, errCh, true, nil)
 }
 
 // QueueSubscribeSyncWithChan will express interest in the given subject.
@@ -3849,7 +4712,7 @@ func (nc *Conn) QueueSubscribeSync(subj, queue string) (*Subscription, error) {
 // You should not close the channel until sub.Unsubscribe() has been called.
 // Note: This is the same than ChanQueueSubscribe.
 func (nc *Conn) QueueSubscribeSyncWithChan(subj, queue string, ch chan *Msg) (*Subscription, error) {
-	return nc.subscribe(subj, queue, nil, ch, false, nil)
+	return nc.subscribe(subj, queue, nil, ch, nil, false, nil)
 }
 
 // badSubject will do quick test on whether a subject is acceptable.
@@ -3873,16 +4736,16 @@ func badQueue(qname string) bool {
 }
 
 // subscribe is the internal subscribe function that indicates interest in a subject.
-func (nc *Conn) subscribe(subj, queue string, cb MsgHandler, ch chan *Msg, isSync bool, js *jsSub) (*Subscription, error) {
+func (nc *Conn) subscribe(subj, queue string, cb MsgHandler, ch chan *Msg, errCh chan (error), isSync bool, js *jsSub) (*Subscription, error) {
 	if nc == nil {
 		return nil, ErrInvalidConnection
 	}
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
-	return nc.subscribeLocked(subj, queue, cb, ch, isSync, js)
+	return nc.subscribeLocked(subj, queue, cb, ch, errCh, isSync, js)
 }
 
-func (nc *Conn) subscribeLocked(subj, queue string, cb MsgHandler, ch chan *Msg, isSync bool, js *jsSub) (*Subscription, error) {
+func (nc *Conn) subscribeLocked(subj, queue string, cb MsgHandler, ch chan *Msg, errCh chan (error), isSync bool, js *jsSub) (*Subscription, error) {
 	if nc == nil {
 		return nil, ErrInvalidConnection
 	}
@@ -3933,6 +4796,7 @@ func (nc *Conn) subscribeLocked(subj, queue string, cb MsgHandler, ch chan *Msg,
 	} else { // Sync Subscription
 		sub.typ = SyncSubscription
 		sub.mch = ch
+		sub.errCh = errCh
 	}
 
 	nc.subsMu.Lock()
@@ -3953,6 +4817,7 @@ func (nc *Conn) subscribeLocked(subj, queue string, cb MsgHandler, ch chan *Msg,
 		nc.kickFlusher()
 	}
 
+	sub.changeSubStatus(SubscriptionActive)
 	return sub, nil
 }
 
@@ -3988,8 +4853,15 @@ func (nc *Conn) removeSub(s *Subscription) {
 		}
 	}
 
+	if s.typ != AsyncSubscription {
+		done := s.pDone
+		if done != nil {
+			done(s.Subject)
+		}
+	}
 	// Mark as invalid
 	s.closed = true
+	s.changeSubStatus(SubscriptionClosed)
 	if s.pCond != nil {
 		s.pCond.Broadcast()
 	}
@@ -4040,7 +4912,7 @@ func (s *Subscription) IsValid() bool {
 //
 // For a JetStream subscription, if the library has created the JetStream
 // consumer, the library will send a DeleteConsumer request to the server
-// when the Drain operation completes. If a failure occurs when deleting
+// when the drain operation completes. If a failure occurs when deleting
 // the JetStream consumer, an error will be reported to the asynchronous
 // error callback.
 // If you do not wish the JetStream consumer to be automatically deleted,
@@ -4057,6 +4929,89 @@ func (s *Subscription) Drain() error {
 		return ErrBadSubscription
 	}
 	return conn.unsubscribe(s, 0, true)
+}
+
+// IsDraining returns a boolean indicating whether the subscription
+// is being drained.
+// This will return false if the subscription has already been closed.
+func (s *Subscription) IsDraining() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.draining
+}
+
+// StatusChanged returns a channel on which given list of subscription status
+// changes will be sent. If no status is provided, all status changes will be sent.
+// Available statuses are SubscriptionActive, SubscriptionDraining, SubscriptionClosed,
+// and SubscriptionSlowConsumer.
+// The returned channel will be closed when the subscription is closed.
+func (s *Subscription) StatusChanged(statuses ...SubStatus) <-chan SubStatus {
+	if len(statuses) == 0 {
+		statuses = []SubStatus{SubscriptionActive, SubscriptionDraining, SubscriptionClosed, SubscriptionSlowConsumer}
+	}
+	ch := make(chan SubStatus, 10)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, status := range statuses {
+		s.registerStatusChangeListener(status, ch)
+		// initial status
+		if status == s.status {
+			ch <- status
+		}
+	}
+	return ch
+}
+
+// registerStatusChangeListener registers a channel waiting for a specific status change event.
+// Status change events are non-blocking - if no receiver is waiting for the status change,
+// it will not be sent on the channel. Closed channels are ignored.
+// Lock should be held entering.
+func (s *Subscription) registerStatusChangeListener(status SubStatus, ch chan SubStatus) {
+	if s.statListeners == nil {
+		s.statListeners = make(map[chan SubStatus][]SubStatus)
+	}
+	if _, ok := s.statListeners[ch]; !ok {
+		s.statListeners[ch] = make([]SubStatus, 0)
+	}
+	s.statListeners[ch] = append(s.statListeners[ch], status)
+}
+
+// sendStatusEvent sends subscription status event to all channels.
+// If there is no listener, sendStatusEvent
+// will not block. Lock should be held entering.
+func (s *Subscription) sendStatusEvent(status SubStatus) {
+	for ch, statuses := range s.statListeners {
+		if !slices.Contains(statuses, status) {
+			continue
+		}
+		// only send event if someone's listening
+		select {
+		case ch <- status:
+		default:
+		}
+	}
+	// After sending SubscriptionClosed status to all listeners,
+	// close all channels and clear the map to prevent future
+	// sends to closed channels that could cause panics
+	if status == SubscriptionClosed {
+		for ch := range s.statListeners {
+			close(ch)
+		}
+		s.statListeners = nil
+	}
+}
+
+// changeSubStatus changes subscription status and sends events
+// to all listeners. Lock should be held entering.
+func (s *Subscription) changeSubStatus(status SubStatus) {
+	if s == nil {
+		return
+	}
+	s.sendStatusEvent(status)
+	s.status = status
 }
 
 // Unsubscribe will remove interest in the given subject.
@@ -4100,6 +5055,11 @@ func (nc *Conn) checkDrained(sub *Subscription) {
 	if nc == nil || sub == nil {
 		return
 	}
+	defer func() {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		sub.draining = false
+	}()
 
 	// This allows us to know that whatever we have in the client pending
 	// is correct and the server will not send additional information.
@@ -4164,6 +5124,14 @@ func (s *Subscription) AutoUnsubscribe(max int) error {
 	return conn.unsubscribe(s, max, false)
 }
 
+// SetClosedHandler will set the closed handler for when a subscription
+// is closed (either unsubscribed or drained).
+func (s *Subscription) SetClosedHandler(handler func(subject string)) {
+	s.mu.Lock()
+	s.pDone = handler
+	s.mu.Unlock()
+}
+
 // unsubscribe performs the low level unsubscribe to the server.
 // Use Subscription.Unsubscribe()
 func (nc *Conn) unsubscribe(sub *Subscription, max int, drainMode bool) error {
@@ -4198,6 +5166,10 @@ func (nc *Conn) unsubscribe(sub *Subscription, max int, drainMode bool) error {
 	}
 
 	if drainMode {
+		s.mu.Lock()
+		s.draining = true
+		sub.changeSubStatus(SubscriptionDraining)
+		s.mu.Unlock()
 		go nc.checkDrained(sub)
 	}
 
@@ -4267,6 +5239,59 @@ func (s *Subscription) NextMsg(timeout time.Duration) (*Msg, error) {
 	t := globalTimerPool.Get(timeout)
 	defer globalTimerPool.Put(t)
 
+	if s.errCh != nil {
+		select {
+		case msg, ok = <-mch:
+			if !ok {
+				return nil, s.getNextMsgErr()
+			}
+			if err := s.processNextMsgDelivered(msg); err != nil {
+				return nil, err
+			}
+		case err := <-s.errCh:
+			return nil, err
+		case <-t.C:
+			return nil, ErrTimeout
+		}
+	} else {
+		select {
+		case msg, ok = <-mch:
+			if !ok {
+				return nil, s.getNextMsgErr()
+			}
+			if err := s.processNextMsgDelivered(msg); err != nil {
+				return nil, err
+			}
+		case <-t.C:
+			return nil, ErrTimeout
+		}
+	}
+
+	return msg, nil
+}
+
+// nextMsgNoTimeout works similarly to Subscription.NextMsg() but will not
+// time out. It is only used internally for non-timeout subscription iterator.
+func (s *Subscription) nextMsgNoTimeout() (*Msg, error) {
+	if s == nil {
+		return nil, ErrBadSubscription
+	}
+
+	s.mu.Lock()
+	err := s.validateNextMsgState(false)
+	if err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+
+	// snapshot
+	mch := s.mch
+	s.mu.Unlock()
+
+	var ok bool
+	var msg *Msg
+
+	// If something is available right away, let's optimize that case.
 	select {
 	case msg, ok = <-mch:
 		if !ok {
@@ -4274,9 +5299,32 @@ func (s *Subscription) NextMsg(timeout time.Duration) (*Msg, error) {
 		}
 		if err := s.processNextMsgDelivered(msg); err != nil {
 			return nil, err
+		} else {
+			return msg, nil
 		}
-	case <-t.C:
-		return nil, ErrTimeout
+	default:
+	}
+
+	if s.errCh != nil {
+		select {
+		case msg, ok = <-mch:
+			if !ok {
+				return nil, s.getNextMsgErr()
+			}
+			if err := s.processNextMsgDelivered(msg); err != nil {
+				return nil, err
+			}
+		case err := <-s.errCh:
+			return nil, err
+		}
+	} else {
+		msg, ok = <-mch
+		if !ok {
+			return nil, s.getNextMsgErr()
+		}
+		if err := s.processNextMsgDelivered(msg); err != nil {
+			return nil, err
+		}
 	}
 
 	return msg, nil
@@ -4299,7 +5347,14 @@ func (s *Subscription) validateNextMsgState(pullSubInternal bool) error {
 	if s.mcb != nil {
 		return ErrSyncSubRequired
 	}
+	// if this subscription previously had a permissions error
+	// and no reconnect has been attempted, return the permissions error
+	// since the subscription does not exist on the server
+	if s.conn.Opts.PermissionErrOnSubscribe && s.permissionsErr != nil {
+		return s.permissionsErr
+	}
 	if s.sc {
+		s.changeSubStatus(SubscriptionActive)
 		s.sc = false
 		return ErrSlowConsumer
 	}
@@ -4369,7 +5424,8 @@ func (s *Subscription) processNextMsgDelivered(msg *Msg) error {
 }
 
 // Queued returns the number of queued messages in the client for this subscription.
-// DEPRECATED: Use Pending()
+//
+// Deprecated: Use Pending()
 func (s *Subscription) QueuedMsgs() (int, error) {
 	m, _, err := s.Pending()
 	return int(m), err
@@ -4426,8 +5482,8 @@ func (s *Subscription) ClearMaxPending() error {
 
 // Pending Limits
 const (
-	// DefaultSubPendingMsgsLimit will be 512k msgs.
-	DefaultSubPendingMsgsLimit = 512 * 1024
+	// DefaultSubPendingMsgsLimit will be 500k msgs.
+	DefaultSubPendingMsgsLimit = 500_000
 	// DefaultSubPendingBytesLimit is 64MB
 	DefaultSubPendingBytesLimit = 64 * 1024 * 1024
 )
@@ -4573,7 +5629,9 @@ func (nc *Conn) processPingTimer() {
 	nc.pout++
 	if nc.pout > nc.Opts.MaxPingsOut {
 		nc.mu.Unlock()
-		nc.processOpErr(ErrStaleConnection)
+		if shouldClose := nc.processOpErr(ErrStaleConnection); shouldClose {
+			nc.close(CLOSED, true, nil)
+		}
 		return
 	}
 
@@ -4670,6 +5728,9 @@ func (nc *Conn) resendSubscriptions() {
 	for _, s := range subs {
 		adjustedMax := uint64(0)
 		s.mu.Lock()
+		// when resending subscriptions, the permissions error should be cleared
+		// since the user may have fixed the permissions issue
+		s.permissionsErr = nil
 		if s.max > 0 {
 			if s.delivered < s.max {
 				adjustedMax = s.max - s.delivered
@@ -4708,9 +5769,6 @@ func (nc *Conn) clearPendingFlushCalls() {
 // This will clear any pending Request calls.
 // Lock is assumed to be held by the caller.
 func (nc *Conn) clearPendingRequestCalls() {
-	if nc.respMap == nil {
-		return
-	}
 	for key, ch := range nc.respMap {
 		if ch != nil {
 			close(ch)
@@ -4775,6 +5833,14 @@ func (nc *Conn) close(status Status, doCBs bool, err error) {
 			close(s.mch)
 		}
 		s.mch = nil
+
+		// Call closed handler for non-AsyncSubscription types (AsyncSubscription handlers
+		// are called by waitForMsgs when it exits)
+		var done func(string)
+		if s.typ != AsyncSubscription && s.pDone != nil {
+			done = s.pDone
+		}
+
 		// Mark as invalid, for signaling to waitForMsgs
 		s.closed = true
 		// Mark connection closed in subscription
@@ -4785,23 +5851,28 @@ func (nc *Conn) close(status Status, doCBs bool, err error) {
 		}
 
 		s.mu.Unlock()
+
+		// Call the closed handler outside the lock to avoid potential deadlocks
+		if done != nil {
+			done(s.Subject)
+		}
 	}
 	nc.subs = nil
 	nc.subsMu.Unlock()
 
-	nc.status = status
+	nc.changeConnStatus(status)
 
 	// Perform appropriate callback if needed for a disconnect.
 	if doCBs {
 		if nc.conn != nil {
-			if nc.Opts.DisconnectedErrCB != nil {
-				nc.ach.push(func() { nc.Opts.DisconnectedErrCB(nc, err) })
-			} else if nc.Opts.DisconnectedCB != nil {
-				nc.ach.push(func() { nc.Opts.DisconnectedCB(nc) })
+			if disconnectedErrCB := nc.Opts.DisconnectedErrCB; disconnectedErrCB != nil {
+				nc.ach.push(func() { disconnectedErrCB(nc, err) })
+			} else if disconnectedCB := nc.Opts.DisconnectedCB; disconnectedCB != nil {
+				nc.ach.push(func() { disconnectedCB(nc) })
 			}
 		}
-		if nc.Opts.ClosedCB != nil {
-			nc.ach.push(func() { nc.Opts.ClosedCB(nc) })
+		if closedCB := nc.Opts.ClosedCB; closedCB != nil {
+			nc.ach.push(func() { closedCB(nc) })
 		}
 	}
 	// If this is terminal, then we have to notify the asyncCB handler that
@@ -4934,7 +6005,7 @@ func (nc *Conn) drainConnection() {
 
 	// Flip State
 	nc.mu.Lock()
-	nc.status = DRAINING_PUBS
+	nc.changeConnStatus(DRAINING_PUBS)
 	nc.mu.Unlock()
 
 	// Do publish drain via Flush() call.
@@ -4950,7 +6021,7 @@ func (nc *Conn) drainConnection() {
 // Drain will put a connection into a drain state. All subscriptions will
 // immediately be put into a drain state. Upon completion, the publishers
 // will be drained and can not publish any additional messages. Upon draining
-// of the publishers, the connection will be closed. Use the ClosedCB()
+// of the publishers, the connection will be closed. Use the ClosedCB
 // option to know when the connection has moved from draining to closed.
 //
 // See note in Subscription.Drain for JetStream subscriptions.
@@ -4969,7 +6040,7 @@ func (nc *Conn) Drain() error {
 		nc.mu.Unlock()
 		return nil
 	}
-	nc.status = DRAINING_SUBS
+	nc.changeConnStatus(DRAINING_SUBS)
 	go nc.drainConnection()
 	nc.mu.Unlock()
 
@@ -4986,12 +6057,12 @@ func (nc *Conn) IsDraining() bool {
 // caller must lock
 func (nc *Conn) getServers(implicitOnly bool) []string {
 	poolSize := len(nc.srvPool)
-	var servers = make([]string, 0)
+	servers := make([]string, 0)
 	for i := 0; i < poolSize; i++ {
 		if implicitOnly && !nc.srvPool[i].isImplicit {
 			continue
 		}
-		url := nc.srvPool[i].url
+		url := nc.srvPool[i].URL
 		servers = append(servers, fmt.Sprintf("%s://%s", url.Scheme, url.Host))
 	}
 	return servers
@@ -5147,6 +6218,103 @@ func (nc *Conn) Barrier(f func()) error {
 	return nil
 }
 
+// ServerPool returns a copy of the current server pool for the connection.
+//
+// This function should not be called from within connection callbacks to avoid
+// potential deadlocks.
+func (nc *Conn) ServerPool() []Server {
+	nc.mu.RLock()
+	defer nc.mu.RUnlock()
+	servers := make([]Server, len(nc.srvPool))
+	for i, srv := range nc.srvPool {
+		if srv != nil {
+			// Return a copy to avoid exposing internal state
+			servers[i] = srv.clone()
+		}
+	}
+	return servers
+}
+
+// SetServerPool allows updating the server pool for the connection. This
+// replaces the existing pool with the provided list of server URLs. If the
+// current server is not in the new pool, the client will switch to a server in
+// the new pool on the next reconnect attempt. This function is thread-safe and
+// can be called while the connection is active. It will return an error if the
+// connection is closed or if any of the provided URLs are invalid.
+//
+// This function does not trigger an immediate reconnect. The new server
+// pool will be used on the next reconnect attempt.
+// If you want to trigger an immediate reconnect to apply the new server pool,
+// you can call [Conn.ForceReconnect] after this function.
+//
+// Unless [IgnoreDiscoveredServers] is used true, the client will continue to
+// discover and add new servers to the pool as it receives INFO messages from
+// the server. If you want to prevent this behavior and only use the servers
+// provided in SetServerPool, use [IgnoreDiscoveredServers].
+//
+// This function should not be called from within connection callbacks to avoid
+// potential deadlocks.
+func (nc *Conn) SetServerPool(servers []string) error {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	if nc.isClosed() {
+		return ErrConnectionClosed
+	}
+
+	// Parse and validate all URLs first (without modifying state)
+	newPool := make([]*Server, 0, len(servers))
+	newURLs := make(map[string]struct{})
+
+	for _, addr := range servers {
+		s, err := nc.parseServerURL(addr, false, false)
+		if err != nil {
+			return err
+		}
+		if isWebsocketScheme(s.URL) != nc.ws {
+			return ErrMixingWebsocketSchemes
+		}
+
+		newPool = append(newPool, s)
+		newURLs[s.URL.Host] = struct{}{}
+	}
+
+	// Preserve state from existing pool entries
+	for _, newSrv := range newPool {
+		if idx := slices.IndexFunc(nc.srvPool, func(oldSrv *Server) bool {
+			return oldSrv != nil && oldSrv.URL.String() == newSrv.URL.String()
+		}); idx != -1 {
+			newSrv.Reconnects = nc.srvPool[idx].Reconnects
+			newSrv.didConnect = nc.srvPool[idx].didConnect
+			newSrv.lastErr = nc.srvPool[idx].lastErr
+		}
+	}
+
+	nc.srvPool = newPool
+	nc.urls = newURLs
+
+	// Update nc.current to point to the corresponding server in the new pool
+	// This is important because currentServer() uses pointer equality
+	if nc.current != nil {
+		currentURL := nc.current.URL.String()
+		found := false
+		for _, s := range newPool {
+			if s.URL.String() == currentURL {
+				// Update nc.current to point to the server instance in the new pool
+				nc.current = s
+				found = true
+				break
+			}
+		}
+		if !found && len(newPool) > 0 {
+			// Current server not in new pool - point to first server in new pool
+			// This ensures selectNextServer() can find it and properly rotate
+			nc.current = newPool[0]
+		}
+	}
+
+	return nil
+}
+
 // GetClientIP returns the client IP as known by the server.
 // Supported as of server version 2.1.6.
 func (nc *Conn) GetClientIP() (net.IP, error) {
@@ -5179,6 +6347,88 @@ func (nc *Conn) GetClientID() (uint64, error) {
 	return nc.info.CID, nil
 }
 
+// StatusChanged returns a channel on which given list of connection status changes will be reported.
+// If no statuses are provided, defaults will be used: CONNECTED, RECONNECTING, DISCONNECTED, CLOSED.
+func (nc *Conn) StatusChanged(statuses ...Status) chan Status {
+	if len(statuses) == 0 {
+		statuses = []Status{CONNECTED, RECONNECTING, DISCONNECTED, CLOSED}
+	}
+	ch := make(chan Status, 10)
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	for _, s := range statuses {
+		nc.registerStatusChangeListener(s, ch)
+	}
+	return ch
+}
+
+// RemoveStatusListener removes a status change listener.
+// If the channel is not closed, it will be closed.
+// Listeners will be removed automatically on status change
+// as well, but this is a way to remove them manually.
+func (nc *Conn) RemoveStatusListener(ch chan (Status)) {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+
+	for _, listeners := range nc.statListeners {
+		for range listeners {
+			delete(listeners, ch)
+		}
+	}
+}
+
+// registerStatusChangeListener registers a channel waiting for a specific status change event.
+// Status change events are non-blocking - if no receiver is waiting for the status change,
+// it will not be sent on the channel. Closed channels are ignored.
+// The lock should be held entering.
+func (nc *Conn) registerStatusChangeListener(status Status, ch chan Status) {
+	if nc.statListeners == nil {
+		nc.statListeners = make(map[Status]map[chan Status]struct{})
+	}
+	if _, ok := nc.statListeners[status]; !ok {
+		nc.statListeners[status] = make(map[chan Status]struct{})
+	}
+	nc.statListeners[status][ch] = struct{}{}
+}
+
+// sendStatusEvent sends connection status event to all channels.
+// If channel is closed, or there is no listener, sendStatusEvent
+// will not block. Lock should be held entering.
+func (nc *Conn) sendStatusEvent(s Status) {
+Loop:
+	for ch := range nc.statListeners[s] {
+		// make sure channel is not closed
+		select {
+		case <-ch:
+			// if chan is closed, remove it
+			delete(nc.statListeners[s], ch)
+			continue Loop
+		default:
+		}
+		// only send event if someone's listening
+		select {
+		case ch <- s:
+		default:
+		}
+	}
+}
+
+// changeConnStatus changes connections status and sends events
+// to all listeners. Lock should be held entering.
+func (nc *Conn) changeConnStatus(status Status) {
+	if nc == nil {
+		return
+	}
+	nc.sendStatusEvent(status)
+	nc.status = status
+}
+
 // NkeyOptionFromSeed will load an nkey pair from a seed file.
 // It will return the NKey Option and will handle
 // signing of nonce challenges from the server. It will take
@@ -5196,7 +6446,7 @@ func NkeyOptionFromSeed(seedFile string) (Option, error) {
 		return nil, err
 	}
 	if !nkeys.IsValidPublicUserKey(pub) {
-		return nil, fmt.Errorf("nats: Not a valid nkey user seed")
+		return nil, errors.New("nats: Not a valid nkey user seed")
 	}
 	sigCB := func(nonce []byte) ([]byte, error) {
 		return sigHandler(nonce, seedFile)
@@ -5214,12 +6464,12 @@ func wipeSlice(buf []byte) {
 func userFromFile(userFile string) (string, error) {
 	path, err := expandPath(userFile)
 	if err != nil {
-		return _EMPTY_, fmt.Errorf("nats: %v", err)
+		return _EMPTY_, fmt.Errorf("nats: %w", err)
 	}
 
-	contents, err := ioutil.ReadFile(path)
+	contents, err := os.ReadFile(path)
 	if err != nil {
-		return _EMPTY_, fmt.Errorf("nats: %v", err)
+		return _EMPTY_, fmt.Errorf("nats: %w", err)
 	}
 	defer wipeSlice(contents)
 	return nkeys.ParseDecoratedJWT(contents)
@@ -5266,9 +6516,9 @@ func expandPath(p string) (string, error) {
 }
 
 func nkeyPairFromSeedFile(seedFile string) (nkeys.KeyPair, error) {
-	contents, err := ioutil.ReadFile(seedFile)
+	contents, err := os.ReadFile(seedFile)
 	if err != nil {
-		return nil, fmt.Errorf("nats: %v", err)
+		return nil, fmt.Errorf("nats: %w", err)
 	}
 	defer wipeSlice(contents)
 	return nkeys.ParseDecoratedNKey(contents)
@@ -5279,7 +6529,7 @@ func nkeyPairFromSeedFile(seedFile string) (nkeys.KeyPair, error) {
 func sigHandler(nonce []byte, seedFile string) ([]byte, error) {
 	kp, err := nkeyPairFromSeedFile(seedFile)
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract key pair from file %q: %v", seedFile, err)
+		return nil, fmt.Errorf("unable to extract key pair from file %q: %w", seedFile, err)
 	}
 	// Wipe our key on exit.
 	defer kp.Wipe()
@@ -5291,18 +6541,12 @@ func sigHandler(nonce []byte, seedFile string) ([]byte, error) {
 type timeoutWriter struct {
 	timeout time.Duration
 	conn    net.Conn
-	err     error
 }
 
 // Write implements the io.Writer interface.
 func (tw *timeoutWriter) Write(p []byte) (int, error) {
-	if tw.err != nil {
-		return 0, tw.err
-	}
-
-	var n int
 	tw.conn.SetWriteDeadline(time.Now().Add(tw.timeout))
-	n, tw.err = tw.conn.Write(p)
+	n, err := tw.conn.Write(p)
 	tw.conn.SetWriteDeadline(time.Time{})
-	return n, tw.err
+	return n, err
 }
