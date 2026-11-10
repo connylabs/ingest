@@ -32,6 +32,34 @@ sources:
 	assert.Equal(t, secret, s)
 }
 
+func TestBackend(t *testing.T) {
+	c, err := New([]byte(`
+workflows:
+- name: default
+- name: nats
+  backend: nats
+- name: temporal
+  backend: temporal
+  schedulePaused: true
+`), prometheus.NewRegistry())
+	require.NoError(t, err)
+	require.Equal(t, BackendNATS, c.Workflows[0].Backend)
+	require.Equal(t, BackendNATS, c.Workflows[1].Backend)
+	require.Equal(t, BackendTemporal, c.Workflows[2].Backend)
+	require.True(t, c.Workflows[2].SchedulePaused)
+
+	c.FilterWorkflows(BackendTemporal)
+	require.Len(t, c.Workflows, 1)
+	require.Equal(t, "temporal", c.Workflows[0].Name)
+
+	_, err = New([]byte(`
+workflows:
+- name: foo
+  backend: kafka
+`), prometheus.NewRegistry())
+	require.ErrorContains(t, err, `workflow "foo" has unknown backend "kafka"`)
+}
+
 func TestNew(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

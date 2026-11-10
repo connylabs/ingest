@@ -1,15 +1,10 @@
 package dequeue
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -62,7 +57,7 @@ func New(webhookURL string, c ingest.Client, s storage.Storage, q ingest.Queue, 
 	}
 
 	return &dequeuer{
-		c:                    newInstrumentedClient(c, r),
+		c:                    NewInstrumentedClient(c, r),
 		s:                    s,
 		l:                    l,
 		r:                    r,
@@ -158,22 +153,8 @@ func (d *dequeuer) Dequeue(ctx context.Context) error {
 func (d *dequeuer) process(ctx context.Context, item ingest.Codec) (*url.URL, error) {
 	var u *url.URL
 	operation := func() error {
-		_, err := d.s.Stat(ctx, item)
-		if err == nil {
-			if d.cleanUp {
-				return d.c.CleanUp(ctx, item)
-			}
-
-			return nil
-		}
-		if !os.IsNotExist(err) {
-			return err
-		}
-		obj, err := d.c.Download(ctx, item)
-		if err != nil {
-			return err
-		}
-		u, err = d.s.Store(ctx, item, *obj)
+		var err error
+		u, err = Transfer(ctx, d.c, d.s, item)
 		if err != nil {
 			return err
 		}
@@ -195,26 +176,5 @@ func (d *dequeuer) process(ctx context.Context, item ingest.Codec) (*url.URL, er
 }
 
 func (d *dequeuer) callWebhook(ctx context.Context, data []string) error {
-	requestData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", d.webhookURL, bytes.NewBuffer(requestData))
-	if err != nil {
-		return err
-	}
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	defer io.Copy(io.Discard, res.Body) //nolint:errcheck
-
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("webhook request failed with status code: %d", res.StatusCode)
-	}
-
-	return nil
+	return CallWebhook(ctx, d.webhookURL, data)
 }

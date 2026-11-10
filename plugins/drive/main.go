@@ -39,7 +39,7 @@ func (d *destination) Configure(config map[string]interface{}) error {
 		o = append(o, option.WithAPIKey(dc.APIKey))
 	}
 	if dc.CredentialsFile != "" {
-		o = append(o, option.WithCredentialsFile(dc.CredentialsFile))
+		o = append(o, option.WithAuthCredentialsFile(option.ServiceAccount, dc.CredentialsFile))
 	}
 	ds, err := drive.NewService(context.TODO(), o...)
 	if err != nil {
