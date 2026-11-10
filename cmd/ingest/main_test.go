@@ -34,7 +34,7 @@ const (
 	subject         = "subject"
 	stream          = "stream"
 	consumer        = "consumer"
-	minioImage      = "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z"
+	minioImage      = "cgr.dev/chainguard/minio:latest"
 	natsImage       = "nats:2.6.1"
 )
 
@@ -129,7 +129,7 @@ func setUp(t *testing.T, files map[string]map[string][]s3File) (string, map[stri
 }
 
 func TestRunGroup(t *testing.T) {
-	if v, ok := os.LookupEnv("E2E"); !ok || !(v == "1" || v == "true") {
+	if v, ok := os.LookupEnv("E2E"); !ok || (v != "1" && v != "true") {
 		t.Skip("To enable this test, set the E2E environment variable to 1 or true")
 	}
 

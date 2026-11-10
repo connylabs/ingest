@@ -15,7 +15,6 @@ import (
 
 	"github.com/connylabs/ingest"
 	"github.com/connylabs/ingest/plugin"
-	iplugin "github.com/connylabs/ingest/plugin"
 	"github.com/connylabs/ingest/storage"
 	s3storage "github.com/connylabs/ingest/storage/s3"
 )
@@ -176,5 +175,5 @@ func (s *source) Download(ctx context.Context, i ingest.Codec) (*ingest.Object, 
 }
 
 func main() {
-	iplugin.RunPluginServer(&source{}, &destination{})
+	plugin.RunPluginServer(&source{}, &destination{})
 }

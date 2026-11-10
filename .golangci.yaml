@@ -1,5 +1,12 @@
-issues:
-  exclude-rules:
-    - linters:
-      - errcheck
-      text: "Error return value of `\\(github\\.com/go-kit/log\\.Logger\\)\\.Log` is not checked"
+version: "2"
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - (github.com/go-kit/log.Logger).Log
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling

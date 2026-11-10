@@ -1,4 +1,4 @@
-FROM gcr.io/distroless/base-debian11
+FROM gcr.io/distroless/base-debian13
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 

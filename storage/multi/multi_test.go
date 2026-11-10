@@ -264,6 +264,6 @@ func TestMultiStorageStore(t *testing.T) {
 
 func callToStorage(m *mock.Call) storage.Storage {
 	ms := new(mocks.Storage)
-	ms.Mock.ExpectedCalls = m.Parent.ExpectedCalls
+	ms.ExpectedCalls = m.Parent.ExpectedCalls
 	return ms
 }
