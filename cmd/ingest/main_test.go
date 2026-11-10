@@ -34,7 +34,7 @@ const (
 	subject         = "subject"
 	stream          = "stream"
 	consumer        = "consumer"
-	minioImage      = "quay.io/minio/minio:RELEASE.2021-10-23T03-28-24Z"
+	minioImage      = "cgr.dev/chainguard/minio:latest"
 	natsImage       = "nats:2.6.1"
 )
 

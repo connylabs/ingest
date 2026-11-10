@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/types"
 	"io"
 	"os"
@@ -19,19 +18,61 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/zerolog"
-	"github.com/vektra/mockery/v2/pkg/config"
-	"github.com/vektra/mockery/v2/pkg/logging"
 	"golang.org/x/tools/imports"
+
+	"github.com/vektra/mockery/v2/pkg/logging"
 )
 
 const mockConstructorParamTypeNamePrefix = "mockConstructorTestingT"
 
-var invalidIdentifierChar = regexp.MustCompile("[^[:digit:][:alpha:]_]")
+var invalidIdentifierChar = regexp.MustCompile("^[[:digit:]]|[^[:digit:][:alpha:]_]")
+
+func DetermineOutputPackageName(
+	interfaceFileName string,
+	interfacePackageName string,
+	packageNamePrefix string,
+	packageName string,
+	keepTree bool,
+	inPackage bool,
+) string {
+	var pkg string
+
+	if keepTree && inPackage {
+		pkg = filepath.Dir(interfaceFileName)
+	} else if inPackage {
+		pkg = filepath.Dir(interfaceFileName)
+	} else if (packageName == "" || packageName == "mocks") && packageNamePrefix != "" {
+		// go with package name prefix only when package name is empty or default and package name prefix is specified
+		pkg = fmt.Sprintf("%s%s", packageNamePrefix, interfacePackageName)
+	} else {
+		pkg = packageName
+	}
+	return pkg
+}
+
+type GeneratorConfig struct {
+	Boilerplate          string
+	DisableVersionString bool
+	Exported             bool
+	InPackage            bool
+	Issue845Fix          bool
+	KeepTree             bool
+	Note                 string
+	MockBuildTags        string
+	Outpkg               string
+	PackageNamePrefix    string
+	StructName           string
+	UnrollVariadic       bool
+	WithExpecter         bool
+	ReplaceType          []string
+	ResolveTypeAlias     bool
+}
 
 // Generator is responsible for generating the string containing
 // imports and the mock struct that will later be written out as file.
 type Generator struct {
-	config.Config
+	config GeneratorConfig
+
 	buf bytes.Buffer
 
 	iface *Interface
@@ -40,32 +81,44 @@ type Generator struct {
 	localizationCache map[string]string
 	packagePathToName map[string]string
 	nameToPackagePath map[string]string
-
-	packageRoots []string
+	replaceTypeCache  []*replaceTypeItem
 }
 
 // NewGenerator builds a Generator.
-func NewGenerator(ctx context.Context, c config.Config, iface *Interface, pkg string) *Generator {
-
-	var roots []string
-
-	for _, root := range filepath.SplitList(build.Default.GOPATH) {
-		roots = append(roots, filepath.Join(root, "src"))
+func NewGenerator(ctx context.Context, c GeneratorConfig, iface *Interface, pkg string) *Generator {
+	if c.Issue845Fix {
+		pkg = c.Outpkg
+	} else if pkg == "" {
+		pkg = DetermineOutputPackageName(
+			iface.FileName,
+			iface.Pkg.Name(),
+			c.PackageNamePrefix,
+			c.Outpkg,
+			c.KeepTree,
+			c.InPackage,
+		)
 	}
-
 	g := &Generator{
-		Config:            c,
+		config:            c,
 		iface:             iface,
 		pkg:               pkg,
 		localizationCache: make(map[string]string),
 		packagePathToName: make(map[string]string),
 		nameToPackagePath: make(map[string]string),
-		packageRoots:      roots,
 	}
 
-	g.addPackageImportWithName(ctx, "github.com/stretchr/testify/mock", "mock")
+	g.parseReplaceTypes(ctx)
+	g.addPackageImportWithName(ctx, "github.com/stretchr/testify/mock", "mock", nil)
 
 	return g
+}
+
+func (g *Generator) GenerateAll(ctx context.Context) error {
+	g.GenerateBoilerplate(g.config.Boilerplate)
+	g.GeneratePrologueNote(g.config.Note)
+	g.GenerateBuildTags(g.config.MockBuildTags)
+	g.GeneratePrologue(ctx, g.pkg)
+	return g.Generate(ctx)
 }
 
 func (g *Generator) populateImports(ctx context.Context) {
@@ -110,18 +163,59 @@ func (g *Generator) addImportsFromTuple(ctx context.Context, list *types.Tuple) 
 // `Foo`) or the package pathname (in the case the type lives in a package
 // external to the mock, e.g. `packagename.Foo`).
 func (g *Generator) getPackageScopedType(ctx context.Context, o *types.TypeName) string {
-	if o.Pkg() == nil || o.Pkg().Name() == "main" || (!g.KeepTree && g.InPackage && o.Pkg() == g.iface.Pkg) {
+	if o.Pkg() == nil || o.Pkg().Name() == "main" ||
+		(!g.config.KeepTree && g.config.InPackage && o.Pkg() == g.iface.Pkg) {
 		return o.Name()
 	}
-	return g.addPackageImport(ctx, o.Pkg()) + "." + o.Name()
+	pkg := g.addPackageImport(ctx, o.Pkg(), o)
+	name := o.Name()
+	g.checkReplaceType(ctx, func(from *replaceType, to *replaceType) bool {
+		if o.Pkg().Path() == from.pkg && name == from.typ {
+			name = to.typ
+			return false
+		}
+		return true
+	})
+	return pkg + "." + name
 }
 
-func (g *Generator) addPackageImport(ctx context.Context, pkg *types.Package) string {
-	return g.addPackageImportWithName(ctx, pkg.Path(), pkg.Name())
+func (g *Generator) addPackageImport(ctx context.Context, pkg *types.Package, o *types.TypeName) string {
+	return g.addPackageImportWithName(ctx, pkg.Path(), pkg.Name(), o)
 }
 
-func (g *Generator) addPackageImportWithName(ctx context.Context, path, name string) string {
-	path = g.getLocalizedPath(ctx, path)
+func (g *Generator) checkReplaceType(ctx context.Context, f func(from *replaceType, to *replaceType) bool) {
+	// check most specific first
+	for _, hasType := range []bool{true, false} {
+		for _, item := range g.replaceTypeCache {
+			if (item.from.typ != "") == hasType {
+				if !f(item.from, item.to) {
+					break
+				}
+			}
+		}
+	}
+}
+
+func (g *Generator) addPackageImportWithName(ctx context.Context, path, name string, o *types.TypeName) string {
+	log := zerolog.Ctx(ctx)
+	replaced := false
+	g.checkReplaceType(ctx, func(from *replaceType, to *replaceType) bool {
+		if o != nil && path == from.pkg && (from.typ == "" || o.Name() == from.typ || o.Name() == from.param) {
+			log.Debug().Str("from", path).Str("to", to.pkg).Msg("changing package path")
+			replaced = true
+			path = to.pkg
+			if to.alias != "" {
+				log.Debug().Str("from", name).Str("to", to.alias).Msg("changing alias name")
+				name = to.alias
+			}
+			return false
+		}
+		return true
+	})
+	if replaced {
+		log.Debug().Str("to-path", path).Str("to-name", name).Msg("successfully replaced type")
+	}
+
 	if existingName, pathExists := g.packagePathToName[path]; pathExists {
 		return existingName
 	}
@@ -132,14 +226,29 @@ func (g *Generator) addPackageImportWithName(ctx context.Context, path, name str
 	return nonConflictingName
 }
 
+func (g *Generator) parseReplaceTypes(ctx context.Context) {
+	for _, replace := range g.config.ReplaceType {
+		r := strings.SplitN(replace, "=", 2)
+		if len(r) != 2 {
+			log := zerolog.Ctx(ctx)
+			log.Error().Msgf("invalid replace type value: %s", replace)
+			continue
+		}
+
+		g.replaceTypeCache = append(g.replaceTypeCache, &replaceTypeItem{
+			from: parseReplaceType(r[0]),
+			to:   parseReplaceType(r[1]),
+		})
+	}
+}
+
 func (g *Generator) getNonConflictingName(path, name string) string {
-	if !g.importNameExists(name) && (!g.InPackage || g.iface.Pkg.Name() != name) {
+	if !g.importNameExists(name) && (!g.config.InPackage || g.iface.Pkg.Name() != name) {
 		// do not allow imports with the same name as the package when inPackage
 		return name
 	}
 
-	// The path will always contain '/' because it is enforced in getLocalizedPath
-	// regardless of OS.
+	// The path will always contain '/' because it is enforced by Go import system
 	directories := strings.Split(path, "/")
 
 	cleanedDirectories := make([]string, 0, len(directories))
@@ -151,7 +260,7 @@ func (g *Generator) getNonConflictingName(path, name string) string {
 	var prospectiveName string
 	for i := 1; i <= numDirectories; i++ {
 		prospectiveName = strings.Join(cleanedDirectories[numDirectories-i:], "")
-		if !g.importNameExists(prospectiveName) && (!g.InPackage || g.iface.Pkg.Name() != prospectiveName) {
+		if !g.importNameExists(prospectiveName) && (!g.config.InPackage || g.iface.Pkg.Name() != prospectiveName) {
 			// do not allow imports with the same name as the package when inPackage
 			return prospectiveName
 		}
@@ -170,60 +279,6 @@ func (g *Generator) getNonConflictingName(path, name string) string {
 func (g *Generator) importNameExists(name string) bool {
 	_, nameExists := g.nameToPackagePath[name]
 	return nameExists
-}
-
-func calculateImport(ctx context.Context, set []string, path string) string {
-	log := zerolog.Ctx(ctx).With().Str(logging.LogKeyPath, path).Logger()
-	ctx = log.WithContext(ctx)
-
-	for _, root := range set {
-		if strings.HasPrefix(path, root) {
-			packagePath, err := filepath.Rel(root, path)
-			if err == nil {
-				return packagePath
-			}
-			log.Err(err).Msgf("Unable to localize path")
-		}
-	}
-	return path
-}
-
-// getLocalizedPath, given a path to a file or an importable URL,
-// returns the proper string needed to import the package. See tests
-// for specific examples of what this should return.
-func (g *Generator) getLocalizedPath(ctx context.Context, path string) string {
-	log := zerolog.Ctx(ctx).With().Str(logging.LogKeyPath, path).Logger()
-	ctx = log.WithContext(ctx)
-
-	if strings.HasSuffix(path, ".go") {
-		path, _ = filepath.Split(path)
-	}
-	if localized, ok := g.localizationCache[path]; ok {
-		return localized
-	}
-	directories := strings.Split(path, string(filepath.Separator))
-	numDirectories := len(directories)
-	vendorIndex := -1
-	for i := 1; i <= numDirectories; i++ {
-		dir := directories[numDirectories-i]
-		if dir == "vendor" {
-			vendorIndex = numDirectories - i
-			break
-		}
-	}
-
-	toReturn := path
-	if vendorIndex >= 0 {
-		toReturn = filepath.Join(directories[vendorIndex+1:]...)
-	} else if filepath.IsAbs(path) {
-		toReturn = calculateImport(ctx, g.packageRoots, path)
-	}
-
-	// Enforce '/' slashes for import paths in every OS.
-	toReturn = filepath.ToSlash(toReturn)
-
-	g.localizationCache[path] = toReturn
-	return toReturn
 }
 
 func (g *Generator) maybeMakeNameExported(name string, export bool) string {
@@ -245,27 +300,26 @@ func (g *Generator) makeNameExported(name string) string {
 }
 
 func (g *Generator) mockName() string {
-	if g.StructName != "" {
-		return g.StructName
+	if g.config.StructName != "" {
+		return g.config.StructName
 	}
 
-	if !g.KeepTree && g.InPackage {
-		if g.Exported || ast.IsExported(g.iface.Name) {
+	if !g.config.KeepTree && g.config.InPackage {
+		if g.config.Exported || ast.IsExported(g.iface.Name) {
 			return "Mock" + g.iface.Name
 		}
 
 		return "mock" + g.makeNameExported(g.iface.Name)
 	}
 
-	return g.maybeMakeNameExported(g.iface.Name, g.Exported)
+	return g.maybeMakeNameExported(g.iface.Name, g.config.Exported)
 }
 
 // getTypeConstraintString returns type constraint string for a given interface.
-//  For instance, a method using this constraint:
 //
-//    func Foo[T Stringer](s []T) (ret []string) {
-//
-//    }
+//	For instance, a method using this constraint:
+//	  func Foo[T Stringer](s []T) (ret []string) {
+//	  }
 //
 // The constraint returned will be "[T Stringer]"
 //
@@ -276,10 +330,32 @@ func (g *Generator) getTypeConstraintString(ctx context.Context) string {
 		return ""
 	}
 	qualifiedParams := make([]string, 0, tp.Len())
+param:
 	for i := 0; i < tp.Len(); i++ {
 		param := tp.At(i)
-		qualifiedParams = append(qualifiedParams, fmt.Sprintf("%s %s", param.String(), g.renderType(ctx, param.Constraint())))
+		str := param.String()
+		typ := g.renderType(ctx, param.Constraint())
+
+		for _, t := range g.replaceTypeCache {
+			if str == t.from.param {
+				// Skip removed generic constraints
+				if t.from.rmvParam {
+					continue param
+				}
+
+				// Import replaced generic constraints
+				pkg := g.addPackageImportWithName(ctx, t.to.pkg, t.to.alias, param.Obj())
+				typ = pkg + "." + t.to.typ
+			}
+		}
+
+		qualifiedParams = append(qualifiedParams, fmt.Sprintf("%s %s", str, typ))
 	}
+
+	if len(qualifiedParams) == 0 {
+		return ""
+	}
+
 	return fmt.Sprintf("[%s]", strings.Join(qualifiedParams, ", "))
 }
 
@@ -292,8 +368,21 @@ func (g *Generator) getInstantiatedTypeString() string {
 		return ""
 	}
 	params := make([]string, 0, tp.Len())
+param:
 	for i := 0; i < tp.Len(); i++ {
-		params = append(params, tp.At(i).String())
+		str := tp.At(i).String()
+
+		// Skip replaced generic types
+		for _, t := range g.replaceTypeCache {
+			if str == t.from.param && t.from.rmvParam {
+				continue param
+			}
+		}
+
+		params = append(params, str)
+	}
+	if len(params) == 0 {
+		return ""
 	}
 	return fmt.Sprintf("[%s]", strings.Join(params, ", "))
 }
@@ -314,7 +403,6 @@ func (g *Generator) generateImports(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
 	log.Debug().Msgf("generating imports")
-	log.Debug().Msgf("%v", g.nameToPackagePath)
 
 	pkgPath := g.nameToPackagePath[g.iface.Pkg.Name()]
 	// Sort by import name so that we get a deterministic order
@@ -323,7 +411,7 @@ func (g *Generator) generateImports(ctx context.Context) {
 		logImport.Debug().Msgf("found import")
 
 		path := g.nameToPackagePath[name]
-		if !g.KeepTree && g.InPackage && path == pkgPath {
+		if !g.config.KeepTree && g.config.InPackage && path == pkgPath {
 			logImport.Debug().Msgf("import (%s) equals interface's package path (%s), skipping", path, pkgPath)
 			continue
 		}
@@ -334,8 +422,20 @@ func (g *Generator) generateImports(ctx context.Context) {
 // GeneratePrologue generates the prologue of the mock.
 func (g *Generator) GeneratePrologue(ctx context.Context, pkg string) {
 	g.populateImports(ctx)
-	if g.InPackage {
-		g.printf("package %s\n\n", g.iface.Pkg.Name())
+
+	if !g.config.Issue845Fix {
+		logging.WarnDeprecated(
+			"issue-845-fix",
+			"issue-845-fix must be set to True to remove this warning. Visit the link for more details.",
+			map[string]any{
+				"url": logging.DocsURL("/deprecations/#issue-845-fix"),
+			},
+		)
+		if g.config.InPackage {
+			g.printf("package %s\n\n", g.iface.Pkg.Name())
+		} else {
+			g.printf("package %v\n\n", pkg)
+		}
 	} else {
 		g.printf("package %v\n\n", pkg)
 	}
@@ -348,12 +448,12 @@ func (g *Generator) GeneratePrologue(ctx context.Context, pkg string) {
 // string.
 func (g *Generator) GeneratePrologueNote(note string) {
 	prologue := "// Code generated by mockery"
-	if !g.Config.DisableVersionString {
-		prologue += fmt.Sprintf(" %s", config.GetSemverInfo())
+	if !g.config.DisableVersionString {
+		prologue += fmt.Sprintf(" %s", logging.GetSemverInfo())
 	}
 	prologue += ". DO NOT EDIT.\n"
 
-	g.printf(prologue)
+	g.print(prologue)
 	if note != "" {
 		g.printf("\n")
 		for _, n := range strings.Split(note, "\\n") {
@@ -371,9 +471,19 @@ func (g *Generator) GenerateBoilerplate(boilerplate string) {
 	}
 }
 
+func (g *Generator) GenerateBuildTags(buildTags string) {
+	if buildTags != "" {
+		g.printf("//go:build %s\n\n", buildTags)
+	}
+}
+
 // ErrNotInterface is returned when the given type is not an interface
 // type.
 var ErrNotInterface = errors.New("expression not an interface")
+
+func (g *Generator) print(s string) {
+	fmt.Fprint(&g.buf, s)
+}
 
 func (g *Generator) printf(s string, vals ...interface{}) {
 	fmt.Fprintf(&g.buf, s, vals...)
@@ -381,40 +491,80 @@ func (g *Generator) printf(s string, vals ...interface{}) {
 
 var templates = template.New("base template")
 
-func (g *Generator) printTemplate(data interface{}, templateString string) {
-	err := templates.ExecuteTemplate(&g.buf, templateString, data)
+func (g *Generator) printTemplateBytes(data interface{}, templateString string) *bytes.Buffer {
+	tmpl, err := templates.New(templateString).Funcs(templateFuncMap).Parse(templateString)
 	if err != nil {
-		tmpl, err := templates.New(templateString).Parse(templateString)
-		if err != nil {
-			// couldn't compile template
-			panic(err)
-		}
-		if err := tmpl.Execute(&g.buf, data); err != nil {
-			panic(err)
-		}
+		panic(err)
 	}
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, data)
+	if err != nil {
+		panic(err)
+	}
+
+	return &buf
+}
+
+func (g *Generator) printTemplate(data interface{}, templateString string) {
+	g.buf.Write(g.printTemplateBytes(data, templateString).Bytes())
 }
 
 type namer interface {
 	Name() string
 }
 
+func (g *Generator) renderNamedType(ctx context.Context, t interface {
+	Obj() *types.TypeName
+	TypeArgs() *types.TypeList
+},
+) string {
+	name := g.getPackageScopedType(ctx, t.Obj())
+	if t.TypeArgs() == nil || t.TypeArgs().Len() == 0 {
+		return name
+	}
+	args := make([]string, 0, t.TypeArgs().Len())
+	for i := 0; i < t.TypeArgs().Len(); i++ {
+		arg := t.TypeArgs().At(i)
+		args = append(args, g.renderType(ctx, arg))
+	}
+	return fmt.Sprintf("%s[%s]", name, strings.Join(args, ","))
+}
+
 func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
+	log := zerolog.Ctx(ctx)
 	switch t := typ.(type) {
 	case *types.Named:
-		name := g.getPackageScopedType(ctx, t.Obj())
-		if t.TypeArgs() == nil || t.TypeArgs().Len() == 0 {
-			return name
+		return g.renderNamedType(ctx, t)
+	case *types.Alias:
+		log.Debug().Msg("found type alias")
+		if g.config.ResolveTypeAlias {
+			return g.renderType(ctx, t.Rhs())
 		}
-		args := make([]string, 0, t.TypeArgs().Len())
-		for i := 0; i < t.TypeArgs().Len(); i++ {
-			arg := t.TypeArgs().At(i)
-			args = append(args, g.renderType(ctx, arg))
-		}
-		return fmt.Sprintf("%s[%s]", name, strings.Join(args, ","))
+		log.Debug().Msg("not resolving type alias to underlying type")
+		return g.renderNamedType(ctx, t)
 	case *types.TypeParam:
 		if t.Constraint() != nil {
-			return t.Obj().Name()
+			name := t.Obj().Name()
+			pkg := ""
+
+			g.checkReplaceType(ctx, func(from *replaceType, to *replaceType) bool {
+				// Replace with the new type if it is being removed as a constraint
+				if t.Obj().Pkg().Path() == from.pkg && name == from.param && from.rmvParam {
+					name = to.typ
+					if to.pkg != from.pkg {
+						pkg = g.addPackageImport(ctx, t.Obj().Pkg(), t.Obj())
+					}
+					return false
+				}
+				return true
+			})
+
+			if pkg != "" {
+				return pkg + "." + name
+			}
+			return name
 		}
 		return g.getPackageScopedType(ctx, t.Obj())
 	case *types.Basic:
@@ -433,19 +583,19 @@ func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
 		case 0:
 			return fmt.Sprintf(
 				"func(%s)",
-				g.renderTypeTuple(ctx, t.Params()),
+				g.renderTypeTuple(ctx, t.Params(), t.Variadic()),
 			)
 		case 1:
 			return fmt.Sprintf(
 				"func(%s) %s",
-				g.renderTypeTuple(ctx, t.Params()),
+				g.renderTypeTuple(ctx, t.Params(), t.Variadic()),
 				g.renderType(ctx, t.Results().At(0).Type()),
 			)
 		default:
 			return fmt.Sprintf(
 				"func(%s)(%s)",
-				g.renderTypeTuple(ctx, t.Params()),
-				g.renderTypeTuple(ctx, t.Results()),
+				g.renderTypeTuple(ctx, t.Params(), t.Variadic()),
+				g.renderTypeTuple(ctx, t.Results(), false),
 			)
 		}
 	case *types.Map:
@@ -471,7 +621,12 @@ func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
 			if f.Anonymous() {
 				fields = append(fields, g.renderType(ctx, f.Type()))
 			} else {
-				fields = append(fields, fmt.Sprintf("%s %s", f.Name(), g.renderType(ctx, f.Type())))
+				field := fmt.Sprintf("%s %s", f.Name(), g.renderType(ctx, f.Type()))
+				tag := t.Tag(i)
+				if tag != "" {
+					field += " `" + tag + "`"
+				}
+				fields = append(fields, field)
 			}
 		}
 
@@ -509,13 +664,20 @@ func (g *Generator) renderType(ctx context.Context, typ types.Type) string {
 	}
 }
 
-func (g *Generator) renderTypeTuple(ctx context.Context, tup *types.Tuple) string {
+func (g *Generator) renderTypeTuple(ctx context.Context, tup *types.Tuple, variadic bool) string {
 	var parts []string
 
 	for i := 0; i < tup.Len(); i++ {
 		v := tup.At(i)
 
-		parts = append(parts, g.renderType(ctx, v.Type()))
+		if variadic && i == tup.Len()-1 {
+			t := v.Type()
+			elem := t.(*types.Slice).Elem()
+
+			parts = append(parts, "..."+g.renderType(ctx, elem))
+		} else {
+			parts = append(parts, g.renderType(ctx, v.Type()))
+		}
 	}
 
 	return strings.Join(parts, " , ")
@@ -525,7 +687,7 @@ func isNillable(typ types.Type) bool {
 	switch t := typ.(type) {
 	case *types.Pointer, *types.Array, *types.Map, *types.Interface, *types.Signature, *types.Chan, *types.Slice:
 		return true
-	case *types.Named:
+	case *types.Named, *types.Alias, *types.TypeParam:
 		return isNillable(t.Underlying())
 	}
 	return false
@@ -538,6 +700,32 @@ type paramList struct {
 	ParamsIntf []string
 	Nilable    []bool
 	Variadic   bool
+}
+
+func (p *paramList) FormattedParamNames() string {
+	formattedParamNames := ""
+	for i, name := range p.Names {
+		if i > 0 {
+			formattedParamNames += ", "
+		}
+
+		paramType := p.Types[i]
+		// for variable args, move the ... to the end.
+		if strings.Index(paramType, "...") == 0 {
+			name += "..."
+		}
+		formattedParamNames += name
+	}
+
+	return formattedParamNames
+}
+
+func (p *paramList) ReturnNames() []string {
+	names := make([]string, 0, len(p.Names))
+	for i := 0; i < len(p.Names); i++ {
+		names = append(names, fmt.Sprintf("r%d", i))
+	}
+	return names
 }
 
 func (g *Generator) genList(ctx context.Context, list *types.Tuple, variadic bool) *paramList {
@@ -564,6 +752,9 @@ func (g *Generator) genList(ctx context.Context, list *types.Tuple, variadic boo
 		}
 
 		pname := v.Name()
+		if ts == pname {
+			pname = fmt.Sprintf("%s%d", pname, i)
+		}
 
 		if g.nameCollides(pname) || pname == "" {
 			pname = fmt.Sprintf("_a%d", i)
@@ -575,7 +766,7 @@ func (g *Generator) genList(ctx context.Context, list *types.Tuple, variadic boo
 		params.Params = append(params.Params, fmt.Sprintf("%s %s", pname, ts))
 		params.Nilable = append(params.Nilable, isNillable(v.Type()))
 
-		if strings.Contains(ts, "...") {
+		if variadic && i == list.Len()-1 {
 			params.ParamsIntf = append(params.ParamsIntf, fmt.Sprintf("%s ...interface{}", pname))
 		} else {
 			params.ParamsIntf = append(params.ParamsIntf, fmt.Sprintf("%s interface{}", pname))
@@ -586,6 +777,9 @@ func (g *Generator) genList(ctx context.Context, list *types.Tuple, variadic boo
 }
 
 func (g *Generator) nameCollides(pname string) bool {
+	if pname == "_" {
+		return true
+	}
 	if pname == g.pkg {
 		return true
 	}
@@ -612,106 +806,101 @@ func (g *Generator) Generate(ctx context.Context) error {
 		"type %s%s struct {\n\tmock.Mock\n}\n\n", g.mockName(), g.getTypeConstraintString(ctx),
 	)
 
-	if g.WithExpecter {
+	if g.config.WithExpecter {
 		g.generateExpecterStruct(ctx)
 	}
 
 	for _, method := range g.iface.Methods() {
-
-		// It's probably possible, but not worth the trouble for prototype
-		if method.Signature.Variadic() && g.WithExpecter && !g.UnrollVariadic {
-			return fmt.Errorf("cannot generate a valid expecter for variadic method with unroll-variadic=false")
-		}
-
-		ftype := method.Signature
-		fname := method.Name
-
-		params := g.genList(ctx, ftype.Params(), ftype.Variadic())
-		returns := g.genList(ctx, ftype.Results(), false)
-
-		if len(params.Names) == 0 {
-			g.printf("// %s provides a mock function with given fields:\n", fname)
-		} else {
-			g.printf(
-				"// %s provides a mock function with given fields: %s\n", fname,
-				strings.Join(params.Names, ", "),
-			)
-		}
-		g.printf(
-			"func (_m *%s%s) %s(%s) ", g.mockName(), g.getInstantiatedTypeString(), fname,
-			strings.Join(params.Params, ", "),
-		)
-
-		switch len(returns.Types) {
-		case 0:
-			g.printf("{\n")
-		case 1:
-			g.printf("%s {\n", returns.Types[0])
-		default:
-			g.printf("(%s) {\n", strings.Join(returns.Types, ", "))
-		}
-
-		formattedParamNames := ""
-		setOfParamNames := make(map[string]struct{}, len(params.Names))
-		for i, name := range params.Names {
-			if i > 0 {
-				formattedParamNames += ", "
-			}
-
-			paramType := params.Types[i]
-			// for variable args, move the ... to the end.
-			if strings.Index(paramType, "...") == 0 {
-				name += "..."
-			}
-			formattedParamNames += name
-
-			setOfParamNames[name] = struct{}{}
-		}
-
-		called := g.generateCalled(params, formattedParamNames) // _m.Called invocation string
-
-		if len(returns.Types) > 0 {
-			retVariable := resolveCollision(setOfParamNames, "ret")
-			g.printf("\t%s := %s\n\n", retVariable, called)
-
-			ret := make([]string, len(returns.Types))
-
-			for idx, typ := range returns.Types {
-				g.printf("\tvar r%d %s\n", idx, typ)
-				g.printf("\tif rf, ok := %s.Get(%d).(func(%s) %s); ok {\n",
-					retVariable, idx, strings.Join(params.Types, ", "), typ)
-				g.printf("\t\tr%d = rf(%s)\n", idx, formattedParamNames)
-				g.printf("\t} else {\n")
-				if typ == "error" {
-					g.printf("\t\tr%d = %s.Error(%d)\n", idx, retVariable, idx)
-				} else if returns.Nilable[idx] {
-					g.printf("\t\tif %s.Get(%d) != nil {\n", retVariable, idx)
-					g.printf("\t\t\tr%d = %s.Get(%d).(%s)\n", idx, retVariable, idx, typ)
-					g.printf("\t\t}\n")
-				} else {
-					g.printf("\t\tr%d = %s.Get(%d).(%s)\n", idx, retVariable, idx, typ)
-				}
-				g.printf("\t}\n\n")
-
-				ret[idx] = fmt.Sprintf("r%d", idx)
-			}
-
-			g.printf("\treturn %s\n", strings.Join(ret, ", "))
-		} else {
-			g.printf("\t%s\n", called)
-		}
-
-		g.printf("}\n")
-
-		// Construct expecter helper functions
-		if g.WithExpecter {
-			g.generateExpecterMethodCall(ctx, method, params, returns)
-		}
+		g.generateMethod(ctx, method)
 	}
 
 	g.generateConstructor(ctx)
 
 	return nil
+}
+
+func (g *Generator) generateMethod(ctx context.Context, method *Method) {
+	ftype := method.Signature
+	fname := method.Name
+
+	params := g.genList(ctx, ftype.Params(), ftype.Variadic())
+	returns := g.genList(ctx, ftype.Results(), false)
+	preamble, called := g.generateCalled(params, returns)
+
+	data := struct {
+		FunctionName           string
+		Params                 *paramList
+		Returns                *paramList
+		MockName               string
+		InstantiatedTypeString string
+		RetVariableName        string
+		Preamble               string
+		Called                 string
+	}{
+		FunctionName:           fname,
+		Params:                 params,
+		Returns:                returns,
+		MockName:               g.mockName(),
+		InstantiatedTypeString: g.getInstantiatedTypeString(),
+		RetVariableName:        resolveCollision(params.Names, "ret"),
+		Preamble:               preamble,
+		Called:                 called,
+	}
+
+	g.printTemplate(data, `
+{{- if gt (len .Params.Names) 0}}
+// {{.FunctionName}} provides a mock function with given fields: {{join .Params.Names ", "}}
+{{- else}}
+// {{.FunctionName}} provides a mock function with no fields
+{{- end}}
+func (_m *{{.MockName}}{{.InstantiatedTypeString}}) {{.FunctionName}}({{join .Params.Params ", "}}) {{if (gt (len .Returns.Types) 1)}}({{end}}{{join .Returns.Types ", "}}{{if (gt (len .Returns.Types) 1)}}){{end}} {
+{{- .Preamble -}}
+{{- if not .Returns.Types}}
+	{{- .Called}}
+{{- else}}
+	{{- .RetVariableName}} := {{.Called}}
+
+	if len({{.RetVariableName}}) == 0 {
+		panic("no return value specified for {{.FunctionName}}")
+	}
+
+	{{range $idx, $name := .Returns.ReturnNames}}
+	var {{$name}} {{index $.Returns.Types $idx -}}
+	{{end}}
+	{{if gt (len .Returns.Types) 1 -}}
+	if rf, ok := {{.RetVariableName}}.Get(0).(func({{join .Params.Types ", "}}) ({{join .Returns.Types ", "}})); ok {
+		return rf({{.Params.FormattedParamNames}})
+	}
+	{{end}}
+	{{- range $idx, $name := .Returns.ReturnNames}}
+	{{- if $idx}}
+
+	{{end}}
+	{{- $typ := index $.Returns.Types $idx -}}
+	if rf, ok := {{$.RetVariableName}}.Get({{$idx}}).(func({{join $.Params.Types ", "}}) {{$typ}}); ok {
+		r{{$idx}} = rf({{$.Params.FormattedParamNames}})
+	} else {
+		{{- if eq "error" $typ -}}
+		r{{$idx}} = {{$.RetVariableName}}.Error({{$idx}})
+		{{- else if (index $.Returns.Nilable $idx) -}}
+		if {{$.RetVariableName}}.Get({{$idx}}) != nil {
+			r{{$idx}} = {{$.RetVariableName}}.Get({{$idx}}).({{$typ}})
+		}
+		{{- else -}}
+		r{{$idx}} = {{$.RetVariableName}}.Get({{$idx}}).({{$typ}})
+		{{- end -}}
+	}
+	{{- end}}
+
+	return {{join .Returns.ReturnNames ", "}}
+{{- end}}
+}
+`)
+
+	// Construct expecter helper functions
+	if g.config.WithExpecter {
+		g.generateExpecterMethodCall(ctx, method, params, returns)
+	}
 }
 
 func (g *Generator) generateExpecterStruct(ctx context.Context) {
@@ -737,7 +926,6 @@ func (_m *{{.MockName}}{{ .InstantiatedTypeString }}) EXPECT() *{{.ExpecterName}
 }
 
 func (g *Generator) generateExpecterMethodCall(ctx context.Context, method *Method, params, returns *paramList) {
-
 	data := struct {
 		MockName, ExpecterName string
 		CallStruct             string
@@ -816,18 +1004,26 @@ func (_c *{{.CallStruct}}{{ .InstantiatedTypeString }}) Return({{range .Returns.
 	_c.Call.Return({{range .Returns.Names}}{{.}},{{end}})
 	return _c
 }
+
+func (_c *{{.CallStruct}}{{ .InstantiatedTypeString }}) RunAndReturn(run func({{range .Params.Types}}{{.}},{{end}})({{range .Returns.Types}}{{.}},{{end}})) *{{.CallStruct}}{{ .InstantiatedTypeString }} {
+{{- if not .Returns.Types}}
+	_c.Run(run)
+{{- else}}
+	_c.Call.Return(run)
+{{- end}}
+	return _c
+}
 `)
 }
 
 func (g *Generator) generateConstructor(ctx context.Context) {
 	const constructorTemplate = `
-type {{ .ConstructorTestingInterfaceName }} interface {
+// {{ .ConstructorName }} creates a new instance of {{ .MockName }}. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func {{ .ConstructorName }}{{ .TypeConstraint }}(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// {{ .ConstructorName }} creates a new instance of {{ .MockName }}. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func {{ .ConstructorName }}{{ .TypeConstraint }}(t {{ .ConstructorTestingInterfaceName }}) *{{ .MockName }}{{ .InstantiatedTypeString }} {
+}) *{{ .MockName }}{{ .InstantiatedTypeString }} {
 	mock := &{{ .MockName }}{{ .InstantiatedTypeString }}{}
 	mock.Mock.Test(t)
 
@@ -855,22 +1051,52 @@ func {{ .ConstructorName }}{{ .TypeConstraint }}(t {{ .ConstructorTestingInterfa
 	g.printTemplate(data, constructorTemplate)
 }
 
-// generateCalled returns the Mock.Called invocation string and, if necessary, prints the
+// generateCalled returns the Mock.Called invocation string and, if necessary, a preamble with the
 // steps to prepare its argument list.
 //
 // It is separate from Generate to avoid cyclomatic complexity through early return statements.
-func (g *Generator) generateCalled(list *paramList, formattedParamNames string) string {
+func (g *Generator) generateCalled(list *paramList, returnList *paramList) (preamble string, called string) {
 	namesLen := len(list.Names)
-	if namesLen == 0 {
-		return "_m.Called()"
-	}
+	if namesLen == 0 || !list.Variadic || !g.config.UnrollVariadic {
+		if list.Variadic && !g.config.UnrollVariadic && g.config.WithExpecter {
+			isFuncReturns := len(returnList.Names) > 0
 
-	if !list.Variadic {
-		return "_m.Called(" + formattedParamNames + ")"
-	}
+			var tmpRet, tmpRetWithAssignment string
+			if isFuncReturns {
+				tmpRet = resolveCollision(list.Names, "tmpRet")
+				tmpRetWithAssignment = fmt.Sprintf("%s = ", tmpRet)
+			}
 
-	if !g.UnrollVariadic {
-		return "_m.Called(" + strings.Join(list.Names, ", ") + ")"
+			calledBytes := g.printTemplateBytes(
+				struct {
+					ParamList                 *paramList
+					ParamNamesWithoutVariadic []string
+					VariadicName              string
+					IsFuncReturns             bool
+					TmpRet                    string
+					TmpRetWithAssignment      string
+				}{
+					ParamList:                 list,
+					ParamNamesWithoutVariadic: list.Names[:len(list.Names)-1],
+					VariadicName:              list.Names[namesLen-1],
+					IsFuncReturns:             isFuncReturns,
+					TmpRet:                    tmpRet,
+					TmpRetWithAssignment:      tmpRetWithAssignment,
+				},
+				`{{ if .IsFuncReturns }}var {{ .TmpRet }} mock.Arguments {{ end }}
+	if len({{ .VariadicName }}) > 0 {
+		{{ .TmpRetWithAssignment }}_m.Called({{ join .ParamList.Names ", " }})
+	} else {
+		{{ .TmpRetWithAssignment }}_m.Called({{ join .ParamNamesWithoutVariadic ", " }})
+	}
+`,
+			)
+
+			return calledBytes.String(), tmpRet
+		}
+
+		called = "_m.Called(" + strings.Join(list.Names, ", ") + ")"
+		return
 	}
 
 	var variadicArgsName string
@@ -879,7 +1105,7 @@ func (g *Generator) generateCalled(list *paramList, formattedParamNames string) 
 	// list.Types[] will contain a leading '...'. Strip this from the string to
 	// do easier comparison.
 	strippedIfaceType := strings.Trim(list.Types[namesLen-1], "...")
-	variadicIface := strippedIfaceType == "interface{}"
+	variadicIface := strippedIfaceType == "interface{}" || strippedIfaceType == "any"
 
 	if variadicIface {
 		// Variadic is already of the interface{} type, so we don't need special handling.
@@ -887,8 +1113,8 @@ func (g *Generator) generateCalled(list *paramList, formattedParamNames string) 
 	} else {
 		// Define _va to avoid "cannot use t (type T) as type []interface {} in append" error
 		// whenever the variadic type is non-interface{}.
-		g.printf("\t_va := make([]interface{}, len(%s))\n", variadicName)
-		g.printf("\tfor _i := range %s {\n\t\t_va[_i] = %s[_i]\n\t}\n", variadicName, variadicName)
+		preamble += fmt.Sprintf("\t_va := make([]interface{}, len(%s))\n", variadicName)
+		preamble += fmt.Sprintf("\tfor _i := range %s {\n\t\t_va[_i] = %s[_i]\n\t}\n", variadicName, variadicName)
 		variadicArgsName = "_va"
 	}
 
@@ -908,15 +1134,17 @@ func (g *Generator) generateCalled(list *paramList, formattedParamNames string) 
 	//
 	// It's okay for us to use the interface{} type, regardless of the actual types, because
 	// Called receives only interface{} anyway.
-	g.printf("\tvar _ca []interface{}\n")
+	preamble += "\tvar _ca []interface{}\n"
 
 	if namesLen > 1 {
+		formattedParamNames := list.FormattedParamNames()
 		nonVariadicParamNames := formattedParamNames[0:strings.LastIndex(formattedParamNames, ",")]
-		g.printf("\t_ca = append(_ca, %s)\n", nonVariadicParamNames)
+		preamble += fmt.Sprintf("\t_ca = append(_ca, %s)\n", nonVariadicParamNames)
 	}
-	g.printf("\t_ca = append(_ca, %s...)\n", variadicArgsName)
+	preamble += fmt.Sprintf("\t_ca = append(_ca, %s...)\n", variadicArgsName)
 
-	return "_m.Called(_ca...)"
+	called = "_m.Called(_ca...)"
+	return
 }
 
 func (g *Generator) Write(w io.Writer) error {
@@ -930,15 +1158,22 @@ func (g *Generator) Write(w io.Writer) error {
 		return err
 	}
 
-	w.Write(res)
+	_, err = w.Write(res)
+	if err != nil {
+		return fmt.Errorf("failed to write generator: %w", err)
+	}
 	return nil
 }
 
-func resolveCollision(names map[string]struct{}, variable string) string {
+func resolveCollision(names []string, variable string) string {
 	ret := variable
+	set := make(map[string]struct{})
+	for _, n := range names {
+		set[n] = struct{}{}
+	}
 
 	for i := len(names); true; i++ {
-		_, ok := names[ret]
+		_, ok := set[ret]
 		if !ok {
 			break
 		}
@@ -946,5 +1181,44 @@ func resolveCollision(names map[string]struct{}, variable string) string {
 		ret = fmt.Sprintf("%s_%d", variable, i)
 	}
 
+	return ret
+}
+
+type replaceType struct {
+	alias    string
+	pkg      string
+	typ      string
+	param    string
+	rmvParam bool
+}
+
+type replaceTypeItem struct {
+	from *replaceType
+	to   *replaceType
+}
+
+func parseReplaceType(t string) *replaceType {
+	ret := &replaceType{}
+	r := strings.SplitN(t, ":", 2)
+	if len(r) > 1 {
+		ret.alias = r[0]
+		t = r[1]
+	}
+
+	// Match type parameter substitution
+	match := regexp.MustCompile(`\[(.*?)\]$`).FindStringSubmatch(t)
+	if len(match) >= 2 {
+		ret.param, ret.rmvParam = strings.CutPrefix(match[1], "-")
+		t = strings.ReplaceAll(t, match[0], "")
+	}
+
+	lastDot := strings.LastIndex(t, ".")
+	lastSlash := strings.LastIndex(t, "/")
+	if lastDot == -1 || (lastSlash > -1 && lastDot < lastSlash) {
+		ret.pkg = t
+	} else {
+		ret.pkg = t[:lastDot]
+		ret.typ = t[lastDot+1:]
+	}
 	return ret
 }

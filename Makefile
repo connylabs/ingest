@@ -31,7 +31,7 @@ MOCKERY_BINARY := $(BIN_DIR)/mockery
 NATS_BINARY := $(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(BIN_DIR)/mc
 
-BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.18.1
+BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.26.10
 CC_amd64 ?= gcc
 CC_arm ?= arm-linux-gnueabihf-gcc
 CC_arm64 ?= aarch64-linux-gnu-gcc
@@ -104,7 +104,6 @@ gen-mock: mocks/nexter.go mocks/queue.go mocks/enqueuer.go mocks/dequeuer.go moc
 mocks/queue.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name Queue
-	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
 mocks/enqueuer.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
@@ -121,7 +120,6 @@ mocks/dequeuer.go: ingest.go $(MOCKERY_BINARY)
 mocks/subscription.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
 	$(MOCKERY_BINARY) --filename $(@F) --name Subscription
-	sed -i 's@github.com/nats-io/@github.com/nats-io/nats.go@g' $@
 
 mocks/nexter.go: ingest.go $(MOCKERY_BINARY)
 	rm -f $@
@@ -156,7 +154,7 @@ vendor:
 	go mod vendor
 
 $(GOLANGCI_LINT_BINARY): | $(BIN_DIR)
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.50.1
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.15.0
 
 $(NATS_BINARY): | $(BIN_DIR)
 	@$(BUILD_PREFIX) \
