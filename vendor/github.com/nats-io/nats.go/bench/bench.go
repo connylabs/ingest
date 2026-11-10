@@ -1,4 +1,4 @@
-// Copyright 2016-2019 The NATS Authors
+// Copyright 2016-2023 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,7 +36,7 @@ type Sample struct {
 	End       time.Time
 }
 
-// SampleGroup for a number of samples, the group is a Sample itself agregating the values the Samples
+// SampleGroup for a number of samples, the group is a Sample itself aggregating the values the Samples
 type SampleGroup struct {
 	Sample
 	Samples []*Sample
@@ -156,7 +156,7 @@ func (s *Sample) Throughput() float64 {
 	return float64(s.MsgBytes) / s.Duration().Seconds()
 }
 
-// Rate of meessages in the job per second
+// Rate of messages in the job per second
 func (s *Sample) Rate() int64 {
 	return int64(float64(s.JobMsgCnt) / s.Duration().Seconds())
 }
@@ -215,6 +215,9 @@ func (sg *SampleGroup) MaxRate() int64 {
 
 // AvgRate returns the average of all the message rates in the SampleGroup
 func (sg *SampleGroup) AvgRate() int64 {
+	if !sg.HasSamples() {
+		return 0
+	}
 	sum := uint64(0)
 	for _, s := range sg.Samples {
 		sum += uint64(s.Rate())
@@ -224,6 +227,9 @@ func (sg *SampleGroup) AvgRate() int64 {
 
 // StdDev returns the standard deviation the message rates in the SampleGroup
 func (sg *SampleGroup) StdDev() float64 {
+	if !sg.HasSamples() {
+		return 0
+	}
 	avg := float64(sg.AvgRate())
 	sum := float64(0)
 	for _, c := range sg.Samples {
