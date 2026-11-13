@@ -15,7 +15,8 @@ type instrumentedClient struct {
 	operationsTotal *prometheus.CounterVec
 }
 
-func newInstrumentedClient(c ingest.Client, r prometheus.Registerer) ingest.Client {
+// NewInstrumentedClient wraps the given ingest.Client and records the outcome of every operation.
+func NewInstrumentedClient(c ingest.Client, r prometheus.Registerer) ingest.Client {
 	operationsTotal := promauto.With(r).NewCounterVec(prometheus.CounterOpts{
 		Name: "ingest_client_operations_total",
 		Help: "Number of client operations",

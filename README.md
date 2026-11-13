@@ -64,6 +64,54 @@ The other part is the dequeuer.
 It is started with the flag `--mode=dequeue`.
 It will pop messages from the NATS stream and copy each object identified by the [NATS](https://nats.io/) message to the configured destinations.
 
+### Temporal
+
+Alternatively, a workflow can run on [Temporal](https://temporal.io/) by setting `backend: temporal` in its configuration.
+Workflows without a backend keep using NATS, so workflows can be moved to Temporal one at a time.
+
+```yaml
+workflows:
+- name: foo_1-bar_1
+  source: foo_1
+  destinations:
+  - bar_1
+  backend: temporal
+  # Optional: keep the Temporal Schedule paused, e.g. while the NATS stream drains.
+  schedulePaused: false
+  interval: 300s
+  cleanUp: true
+  webhook: http://localhost:8080
+```
+
+Temporal workflows are run by a single deployment started with `--mode=worker`.
+On start, the worker creates or updates one Temporal Schedule called `ingest-<workflow>` per workflow,
+which starts an `IngestSync` workflow every `interval`.
+`IngestSync` lists the items of the source and starts one `IngestItem` workflow per item with the ID `ingest/<workflow>/<item ID>`,
+which copies the item to the destinations and cleans it up in the source.
+After every batch, the webhook is called with the URIs of the newly stored objects.
+Failed downloads, uploads and webhook calls are retried by Temporal.
+The worker pauses the Schedules of workflows that are no longer configured with the `temporal` backend.
+
+The enqueuer and dequeuer ignore workflows with the `temporal` backend, and the worker ignores all other workflows.
+
+The worker is configured with the following flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--temporal-host` | `$INGEST_TEMPORALIO__HOST` or `localhost:7233` | The Temporal frontend |
+| `--temporal-namespace` | `$INGEST_TEMPORALIO__NAMESPACE` or `default` | The Temporal namespace |
+| `--temporal-task-queue` | `ingest` | The Temporal task queue |
+| `--temporal-search-attributes` | `false` | Set the `IngestWorkflow` and `ItemID` search attributes on every `IngestItem`; they must exist in the namespace |
+
+To try it locally, start a Temporal development server and run the worker:
+
+```shell
+temporal server start-dev --search-attribute IngestWorkflow=Keyword --search-attribute ItemID=Keyword
+ingest --mode=worker --config config.yaml --temporal-host localhost:7233 --temporal-search-attributes
+```
+
+The Temporal UI of the development server is available at http://localhost:8233.
+
 
 
 ## Usage as a Library
