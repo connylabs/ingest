@@ -20,6 +20,13 @@ import (
 
 var defaultInterval = Duration(5 * time.Minute)
 
+const (
+	// BackendNATS runs a workflow with the enqueue and dequeue modes via NATS JetStream.
+	BackendNATS = "nats"
+	// BackendTemporal runs a workflow with the worker mode via Temporal.
+	BackendTemporal = "temporal"
+)
+
 // NewFromPath creates a new Config from the given file path.
 func NewFromPath(path string, r prometheus.Registerer) (*Config, error) {
 	f, err := os.ReadFile(path)
@@ -37,6 +44,15 @@ func New(buf []byte, r prometheus.Registerer) (*Config, error) {
 
 	if err := yaml.Unmarshal(buf, c); err != nil {
 		return nil, fmt.Errorf("unable to read configuration YAML: %w", err)
+	}
+	for i := range c.Workflows {
+		switch c.Workflows[i].Backend {
+		case "":
+			c.Workflows[i].Backend = BackendNATS
+		case BackendNATS, BackendTemporal:
+		default:
+			return nil, fmt.Errorf("workflow %q has unknown backend %q; possible values are: %s, %s", c.Workflows[i].Name, c.Workflows[i].Backend, BackendNATS, BackendTemporal)
+		}
 	}
 	c.workflowInstantiationFailuresTotal = promauto.With(r).NewCounter(prometheus.CounterOpts{
 		Name: "ingest_workflow_instantiation_failures_total",
@@ -88,6 +104,22 @@ type Workflow struct {
 	Concurrency  int
 	BatchSize    int
 	Webhook      string
+	// Backend selects how the workflow is run: "nats" (default) or "temporal".
+	Backend string
+	// SchedulePaused creates or keeps the workflow's Temporal Schedule paused.
+	// It only applies to workflows with the "temporal" backend.
+	SchedulePaused bool
+}
+
+// FilterWorkflows keeps only the workflows that use the given backend.
+func (c *Config) FilterWorkflows(backend string) {
+	ws := make([]Workflow, 0, len(c.Workflows))
+	for _, w := range c.Workflows {
+		if w.Backend == backend {
+			ws = append(ws, w)
+		}
+	}
+	c.Workflows = ws
 }
 
 // Config represents a configuration of sources, workflows and destinations.
