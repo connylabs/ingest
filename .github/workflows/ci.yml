@@ -20,7 +20,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Vendor
       run: |
         make vendor
@@ -33,7 +33,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Docs
       run: |
         make README.md -B
@@ -46,7 +46,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Generate
       run: |
         make gen-mock -B
@@ -59,7 +59,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Lint
       run: |
         go mod tidy
@@ -72,7 +72,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Test
       run: CONTAINERIZE_BUILD=false make test
 
@@ -83,7 +83,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Build
       run: make
 
@@ -94,7 +94,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Build ingest and plugins for all Linux Architectures
       run: make all-build
 
@@ -109,7 +109,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Build ingest and plugins
       run: make
     - name: Build container
@@ -125,7 +125,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Build ingest and plugins
       run: make
     - name: Build container
@@ -166,7 +166,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: "1.27.4"
     - name: Build ingest and plugins for all Linux Architectures
       run: make all-build
     - name: Determine SHA

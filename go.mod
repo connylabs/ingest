@@ -1,6 +1,6 @@
 module github.com/connylabs/ingest
 
-go 1.26.10
+go 1.27.4
 
 require (
 	github.com/campoy/embedmd v1.0.0
