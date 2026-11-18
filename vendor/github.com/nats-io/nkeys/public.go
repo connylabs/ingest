@@ -1,4 +1,4 @@
-// Copyright 2018 The NATS Authors
+// Copyright 2018-2024 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -14,10 +14,9 @@
 package nkeys
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"io"
-
-	"golang.org/x/crypto/ed25519"
 )
 
 // A KeyPair from a public key capable of verifying only.
@@ -63,4 +62,24 @@ func (p *pub) Verify(input []byte, sig []byte) error {
 func (p *pub) Wipe() {
 	p.pre = '0'
 	io.ReadFull(rand.Reader, p.pub)
+}
+
+func (p *pub) Seal(input []byte, recipient string) ([]byte, error) {
+	if p.pre == PrefixByteCurve {
+		return nil, ErrCannotSeal
+	}
+	return nil, ErrInvalidNKeyOperation
+}
+func (p *pub) SealWithRand(input []byte, _recipient string, rr io.Reader) ([]byte, error) {
+	if p.pre == PrefixByteCurve {
+		return nil, ErrCannotSeal
+	}
+	return nil, ErrInvalidNKeyOperation
+}
+
+func (p *pub) Open(input []byte, sender string) ([]byte, error) {
+	if p.pre == PrefixByteCurve {
+		return nil, ErrCannotOpen
+	}
+	return nil, ErrInvalidNKeyOperation
 }

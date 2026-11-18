@@ -52,16 +52,20 @@ func formatJwt(kind string, jwtString string) ([]byte, error) {
 
 // DecorateSeed takes a seed and returns a string that wraps
 // the seed in the form:
-//  ************************* IMPORTANT *************************
-//  NKEY Seed printed below can be used sign and prove identity.
-//  NKEYs are sensitive and should be treated as secrets.
 //
-//  -----BEGIN USER NKEY SEED-----
-//  SUAIO3FHUX5PNV2LQIIP7TZ3N4L7TX3W53MQGEIVYFIGA635OZCKEYHFLM
-//  ------END USER NKEY SEED------
+//	************************* IMPORTANT *************************
+//	NKEY Seed printed below can be used sign and prove identity.
+//	NKEYs are sensitive and should be treated as secrets.
+//
+//	-----BEGIN USER NKEY SEED-----
+//	SUAIO3FHUX5PNV2LQIIP7TZ3N4L7TX3W53MQGEIVYFIGA635OZCKEYHFLM
+//	------END USER NKEY SEED------
 func DecorateSeed(seed []byte) ([]byte, error) {
 	w := bytes.NewBuffer(nil)
 	ts := bytes.TrimSpace(seed)
+	if len(ts) < 2 {
+		return nil, errors.New("seed is too short")
+	}
 	pre := string(ts[0:2])
 	kind := ""
 	switch pre {
@@ -135,6 +139,18 @@ func FormatUserConfig(jwtString string, seed []byte) ([]byte, error) {
 	}
 	if !bytes.HasPrefix(bytes.TrimSpace(seed), []byte("SU")) {
 		return nil, fmt.Errorf("nkey seed is not an user seed")
+	}
+
+	kp, err := nkeys.FromSeed(seed)
+	if err != nil {
+		return nil, err
+	}
+	pk, err := kp.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	if pk != gc.Claims().Subject {
+		return nil, fmt.Errorf("nkey seed does not match the jwt subject")
 	}
 
 	d, err := DecorateSeed(seed)

@@ -37,6 +37,10 @@ github.com/alecthomas/template/parse
 # github.com/alecthomas/units v0.0.0-20211218093645-b94a6e3cc137
 ## explicit; go 1.15
 github.com/alecthomas/units
+# github.com/antithesishq/antithesis-sdk-go v0.6.0-default-no-op
+## explicit; go 1.20
+github.com/antithesishq/antithesis-sdk-go/assert
+github.com/antithesishq/antithesis-sdk-go/internal
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile
@@ -216,6 +220,11 @@ github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
+# github.com/google/go-tpm v0.9.8
+## explicit; go 1.22
+github.com/google/go-tpm/legacy/tpm2
+github.com/google/go-tpm/tpmutil
+github.com/google/go-tpm/tpmutil/tbs
 # github.com/google/s2a-go v0.1.9
 ## explicit; go 1.20
 github.com/google/s2a-go
@@ -410,7 +419,7 @@ github.com/minio/colorjson
 # github.com/minio/filepath v1.0.0
 ## explicit
 github.com/minio/filepath
-# github.com/minio/highwayhash v1.0.2
+# github.com/minio/highwayhash v1.0.4-0.20251030100505-070ab1a87a76
 ## explicit; go 1.15
 github.com/minio/highwayhash
 # github.com/minio/madmin-go v1.4.5
@@ -505,29 +514,39 @@ github.com/nats-io/jsm.go/api/server/metric
 github.com/nats-io/jsm.go/governor
 github.com/nats-io/jsm.go/natscontext
 github.com/nats-io/jsm.go/schemas
-# github.com/nats-io/jwt/v2 v2.2.1-0.20220330180145-442af02fd36a
-## explicit; go 1.16
+# github.com/nats-io/jwt/v2 v2.8.1
+## explicit; go 1.25.0
 github.com/nats-io/jwt/v2
-# github.com/nats-io/nats-server/v2 v2.8.4
-## explicit; go 1.17
+# github.com/nats-io/nats-server/v2 v2.11.15
+## explicit; go 1.25.0
 github.com/nats-io/nats-server/v2/conf
+github.com/nats-io/nats-server/v2/internal/fastrand
 github.com/nats-io/nats-server/v2/internal/ldap
 github.com/nats-io/nats-server/v2/logger
 github.com/nats-io/nats-server/v2/server
+github.com/nats-io/nats-server/v2/server/ats
+github.com/nats-io/nats-server/v2/server/avl
+github.com/nats-io/nats-server/v2/server/certidp
+github.com/nats-io/nats-server/v2/server/certstore
+github.com/nats-io/nats-server/v2/server/gsl
 github.com/nats-io/nats-server/v2/server/pse
+github.com/nats-io/nats-server/v2/server/stree
 github.com/nats-io/nats-server/v2/server/sysmem
-# github.com/nats-io/nats.go v1.16.0
-## explicit; go 1.16
+github.com/nats-io/nats-server/v2/server/thw
+github.com/nats-io/nats-server/v2/server/tpm
+# github.com/nats-io/nats.go v1.49.0
+## explicit; go 1.24.0
 github.com/nats-io/nats.go
 github.com/nats-io/nats.go/bench
 github.com/nats-io/nats.go/encoders/builtin
+github.com/nats-io/nats.go/internal/parser
 github.com/nats-io/nats.go/util
 # github.com/nats-io/natscli v0.0.33
 ## explicit; go 1.17
 github.com/nats-io/natscli/cli
 github.com/nats-io/natscli/nats
-# github.com/nats-io/nkeys v0.3.0
-## explicit; go 1.16
+# github.com/nats-io/nkeys v0.4.15
+## explicit; go 1.24.0
 github.com/nats-io/nkeys
 # github.com/nats-io/nuid v1.0.1
 ## explicit
@@ -889,8 +908,11 @@ golang.org/x/crypto/ed25519
 golang.org/x/crypto/hkdf
 golang.org/x/crypto/internal/alias
 golang.org/x/crypto/internal/poly1305
+golang.org/x/crypto/nacl/box
+golang.org/x/crypto/nacl/secretbox
 golang.org/x/crypto/ocsp
 golang.org/x/crypto/pbkdf2
+golang.org/x/crypto/salsa20/salsa
 golang.org/x/crypto/ssh/terminal
 # golang.org/x/mod v0.42.0
 ## explicit; go 1.26.0
@@ -952,8 +974,8 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
-# golang.org/x/time v0.14.0
-## explicit; go 1.24.0
+# golang.org/x/time v0.15.0
+## explicit; go 1.25.0
 golang.org/x/time/rate
 # golang.org/x/tools v0.52.0
 ## explicit; go 1.26.0

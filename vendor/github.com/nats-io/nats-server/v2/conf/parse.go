@@ -1,4 +1,4 @@
-// Copyright 2013-2018 The NATS Authors
+// Copyright 2013-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -18,7 +18,7 @@ package conf
 
 // The format supported is less restrictive than today's formats.
 // Supports mixed Arrays [], nested Maps {}, multiple comment types (# and //)
-// Also supports key value assigments using '=' or ':' or whiteSpace()
+// Also supports key value assignments using '=' or ':' or whiteSpace()
 //   e.g. foo = 2, foo : 2, foo 2
 // maps can be assigned with no key separator as well
 // semicolons as value terminators in key/value assignments are optional
@@ -26,8 +26,9 @@ package conf
 // see parse_test.go for more examples.
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,15 +37,17 @@ import (
 	"unicode"
 )
 
+const _EMPTY_ = ""
+
 type parser struct {
-	mapping map[string]interface{}
+	mapping map[string]any
 	lx      *lexer
 
 	// The current scoped context, can be array or map
-	ctx interface{}
+	ctx any
 
 	// stack of contexts, either map or array/slice stack
-	ctxs []interface{}
+	ctxs []any
 
 	// Keys stack
 	keys []string
@@ -57,12 +60,15 @@ type parser struct {
 
 	// pedantic reports error when configuration is not correct.
 	pedantic bool
+
+	// Tracks environment variable references, to avoid cycles
+	envVarReferences map[string]bool
 }
 
-// Parse will return a map of keys to interface{}, although concrete types
+// Parse will return a map of keys to any, although concrete types
 // underly them. The values supported are string, bool, int64, float64, DateTime.
 // Arrays and nested Maps are also supported.
-func Parse(data string) (map[string]interface{}, error) {
+func Parse(data string) (map[string]any, error) {
 	p, err := parse(data, "", false)
 	if err != nil {
 		return nil, err
@@ -70,9 +76,18 @@ func Parse(data string) (map[string]interface{}, error) {
 	return p.mapping, nil
 }
 
+// ParseWithChecks is equivalent to Parse but runs in pedantic mode.
+func ParseWithChecks(data string) (map[string]any, error) {
+	p, err := parse(data, "", true)
+	if err != nil {
+		return nil, err
+	}
+	return p.mapping, nil
+}
+
 // ParseFile is a helper to open file, etc. and parse the contents.
-func ParseFile(fp string) (map[string]interface{}, error) {
-	data, err := ioutil.ReadFile(fp)
+func ParseFile(fp string) (map[string]any, error) {
+	data, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, fmt.Errorf("error opening config file: %v", err)
 	}
@@ -85,8 +100,8 @@ func ParseFile(fp string) (map[string]interface{}, error) {
 }
 
 // ParseFileWithChecks is equivalent to ParseFile but runs in pedantic mode.
-func ParseFileWithChecks(fp string) (map[string]interface{}, error) {
-	data, err := ioutil.ReadFile(fp)
+func ParseFileWithChecks(fp string) (map[string]any, error) {
+	data, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, err
 	}
@@ -99,14 +114,56 @@ func ParseFileWithChecks(fp string) (map[string]interface{}, error) {
 	return p.mapping, nil
 }
 
+// cleanupUsedEnvVars will recursively remove all already used
+// environment variables which might be in the parsed tree.
+func cleanupUsedEnvVars(m map[string]any) {
+	for k, v := range m {
+		t := v.(*token)
+		if t.usedVariable {
+			delete(m, k)
+			continue
+		}
+		// Cleanup any other env var that is still in the map.
+		if tm, ok := t.value.(map[string]any); ok {
+			cleanupUsedEnvVars(tm)
+		}
+	}
+}
+
+// ParseFileWithChecksDigest returns the processed config and a digest
+// that represents the configuration.
+func ParseFileWithChecksDigest(fp string) (map[string]any, string, error) {
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		return nil, _EMPTY_, err
+	}
+	p, err := parse(string(data), fp, true)
+	if err != nil {
+		return nil, _EMPTY_, err
+	}
+	// Filter out any environment variables before taking the digest.
+	cleanupUsedEnvVars(p.mapping)
+	digest := sha256.New()
+	e := json.NewEncoder(digest)
+	err = e.Encode(p.mapping)
+	if err != nil {
+		return nil, _EMPTY_, err
+	}
+	return p.mapping, fmt.Sprintf("sha256:%x", digest.Sum(nil)), nil
+}
+
 type token struct {
 	item         item
-	value        interface{}
+	value        any
 	usedVariable bool
 	sourceFile   string
 }
 
-func (t *token) Value() interface{} {
+func (t *token) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.value)
+}
+
+func (t *token) Value() any {
 	return t.value
 }
 
@@ -126,41 +183,68 @@ func (t *token) Position() int {
 	return t.item.pos
 }
 
-func parse(data, fp string, pedantic bool) (p *parser, err error) {
-	p = &parser{
-		mapping:  make(map[string]interface{}),
-		lx:       lex(data),
-		ctxs:     make([]interface{}, 0, 4),
-		keys:     make([]string, 0, 4),
-		ikeys:    make([]item, 0, 4),
-		fp:       filepath.Dir(fp),
-		pedantic: pedantic,
+func newParser(data, fp string, pedantic bool) *parser {
+	return &parser{
+		mapping:          make(map[string]any),
+		lx:               lex(data),
+		ctxs:             make([]any, 0, 4),
+		keys:             make([]string, 0, 4),
+		ikeys:            make([]item, 0, 4),
+		fp:               filepath.Dir(fp),
+		pedantic:         pedantic,
+		envVarReferences: make(map[string]bool),
 	}
+}
+
+func parse(data, fp string, pedantic bool) (*parser, error) {
+	p := newParser(data, fp, pedantic)
+	if err := p.parse(fp); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func parseEnv(data string, parent *parser) (*parser, error) {
+	p := newParser(data, "", false)
+	p.envVarReferences = parent.envVarReferences
+	if err := p.parse(""); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (p *parser) parse(fp string) error {
 	p.pushContext(p.mapping)
 
+	var prevItem item
 	for {
 		it := p.next()
 		if it.typ == itemEOF {
+			// Here we allow the final character to be a bracket '}'
+			// in order to support JSON like configurations.
+			if prevItem.typ == itemKey && prevItem.val != mapEndString {
+				return fmt.Errorf("config is invalid (%s:%d:%d)", fp, it.line, it.pos)
+			}
 			break
 		}
+		prevItem = it
 		if err := p.processItem(it, fp); err != nil {
-			return nil, err
+			return err
 		}
 	}
-
-	return p, nil
+	return nil
 }
 
 func (p *parser) next() item {
 	return p.lx.nextItem()
 }
 
-func (p *parser) pushContext(ctx interface{}) {
+func (p *parser) pushContext(ctx any) {
 	p.ctxs = append(p.ctxs, ctx)
 	p.ctx = ctx
 }
 
-func (p *parser) popContext() interface{} {
+func (p *parser) popContext() any {
 	if len(p.ctxs) == 0 {
 		panic("BUG in parser, context stack empty")
 	}
@@ -200,7 +284,7 @@ func (p *parser) popItemKey() item {
 }
 
 func (p *parser) processItem(it item, fp string) error {
-	setValue := func(it item, v interface{}) {
+	setValue := func(it item, v any) {
 		if p.pedantic {
 			p.setValue(&token{it, v, false, fp})
 		} else {
@@ -221,7 +305,7 @@ func (p *parser) processItem(it item, fp string) error {
 			p.pushItemKey(it)
 		}
 	case itemMapStart:
-		newCtx := make(map[string]interface{})
+		newCtx := make(map[string]any)
 		p.pushContext(newCtx)
 	case itemMapEnd:
 		setValue(it, p.popContext())
@@ -304,7 +388,7 @@ func (p *parser) processItem(it item, fp string) error {
 		}
 		setValue(it, dt)
 	case itemArrayStart:
-		var array = make([]interface{}, 0)
+		var array = make([]any, 0)
 		p.pushContext(array)
 	case itemArrayEnd:
 		array := p.ctx
@@ -337,7 +421,7 @@ func (p *parser) processItem(it item, fp string) error {
 		}
 	case itemInclude:
 		var (
-			m   map[string]interface{}
+			m   map[string]any
 			err error
 		)
 		if p.pedantic {
@@ -375,7 +459,7 @@ const bcryptPrefix = "2a$"
 // ignore array contexts and only process the map contexts..
 //
 // Returns true for ok if it finds something, similar to map.
-func (p *parser) lookupVariable(varReference string) (interface{}, bool, error) {
+func (p *parser) lookupVariable(varReference string) (any, bool, error) {
 	// Do special check to see if it is a raw bcrypt string.
 	if strings.HasPrefix(varReference, bcryptPrefix) {
 		return "$" + varReference, true, nil
@@ -385,7 +469,7 @@ func (p *parser) lookupVariable(varReference string) (interface{}, bool, error) 
 	for i := len(p.ctxs) - 1; i >= 0; i-- {
 		ctx := p.ctxs[i]
 		// Process if it is a map context
-		if m, ok := ctx.(map[string]interface{}); ok {
+		if m, ok := ctx.(map[string]any); ok {
 			if v, ok := m[varReference]; ok {
 				return v, ok, nil
 			}
@@ -393,11 +477,18 @@ func (p *parser) lookupVariable(varReference string) (interface{}, bool, error) 
 	}
 
 	// If we are here, we have exhausted our context maps and still not found anything.
-	// Parse from the environment.
+	// Detect reference cycles
+	if p.envVarReferences[varReference] {
+		return nil, false, fmt.Errorf("variable reference cycle for '%s'", varReference)
+	}
+	p.envVarReferences[varReference] = true
+	defer delete(p.envVarReferences, varReference)
+
+	// Parse from the environment
 	if vStr, ok := os.LookupEnv(varReference); ok {
 		// Everything we get here will be a string value, so we need to process as a parser would.
-		if vmap, err := Parse(fmt.Sprintf("%s=%s", pkey, vStr)); err == nil {
-			v, ok := vmap[pkey]
+		if subp, err := parseEnv(fmt.Sprintf("%s=%s", pkey, vStr), p); err == nil {
+			v, ok := subp.mapping[pkey]
 			return v, ok, nil
 		} else {
 			return nil, false, err
@@ -406,17 +497,17 @@ func (p *parser) lookupVariable(varReference string) (interface{}, bool, error) 
 	return nil, false, nil
 }
 
-func (p *parser) setValue(val interface{}) {
+func (p *parser) setValue(val any) {
 	// Test to see if we are on an array or a map
 
 	// Array processing
-	if ctx, ok := p.ctx.([]interface{}); ok {
+	if ctx, ok := p.ctx.([]any); ok {
 		p.ctx = append(ctx, val)
 		p.ctxs[len(p.ctxs)-1] = p.ctx
 	}
 
 	// Map processing
-	if ctx, ok := p.ctx.(map[string]interface{}); ok {
+	if ctx, ok := p.ctx.(map[string]any); ok {
 		key := p.popKey()
 
 		if p.pedantic {
