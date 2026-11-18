@@ -21,8 +21,8 @@ endif
 DIRTY := $(shell test -z "$$(git diff --shortstat 2>/dev/null)" || echo -dirty)
 VERSION := $(VERSION)$(DIRTY)
 LD_FLAGS := -ldflags "-s -w -X $(PKG)/version.Version=$(VERSION)"
-SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
-GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*')
+SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -path "./.cache/*")
+GO_FILES ?= $$(find . -name '*.go' -not -path './vendor/*' -not -path './.cache/*')
 GO_PKGS ?= $$(go list ./... | grep -v "$(PKG)/vendor")
 
 EMBEDMD_BINARY := $(BIN_DIR)/embedmd
@@ -31,7 +31,7 @@ MOCKERY_BINARY := $(BIN_DIR)/mockery
 NATS_BINARY := $(BIN_DIR)/nats
 MINIO_CLIENT_BINARY := $(BIN_DIR)/mc
 
-BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.26.10
+BUILD_IMAGE ?= ghcr.io/goreleaser/goreleaser-cross:v1.27.3
 CC_amd64 ?= gcc
 CC_arm ?= arm-linux-gnueabihf-gcc
 CC_arm64 ?= aarch64-linux-gnu-gcc
@@ -39,12 +39,16 @@ CONTAINERIZE_BUILD ?= true
 E2E ?= true
 BUILD_PREFIX :=
 BUILD_SUFIX :=
+# GOPATH points into the repo because the container runs as the host user, who cannot write the
+# image's /go. Go needs it for modules and to download the toolchain go.mod asks for when the image's
+# Go is older (goreleaser-cross has no v1.27.4 tag yet, v1.27.3 switches to go1.27.4).
 ifeq ($(CONTAINERIZE_BUILD), true)
 	BUILD_PREFIX := docker run --rm \
 	    -u $$(id -u):$$(id -g) \
 	    -v $$(pwd):/src \
 	    -w /src \
 	    -e CC=$(CC_$(ARCH)) \
+	    -e GOPATH=/src/.cache/gopath \
 	    --entrypoint '' \
 	    $(BUILD_IMAGE) \
 	    /bin/sh -c ' \
