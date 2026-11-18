@@ -17,6 +17,8 @@ const (
 	S2IndexHeader   = "s2idx\x00"
 	S2IndexTrailer  = "\x00xdi2s"
 	maxIndexEntries = 1 << 16
+	// If distance is less than this, we do not add the entry.
+	minIndexDist = 1 << 20
 )
 
 // Index represents an S2/Snappy index.
@@ -70,7 +72,11 @@ func (i *Index) add(compressedOffset, uncompressedOffset int64) error {
 			return fmt.Errorf("internal error: Earlier uncompressed received (%d > %d)", latest.uncompressedOffset, uncompressedOffset)
 		}
 		if latest.compressedOffset > compressedOffset {
-			return fmt.Errorf("internal error: Earlier compressed received (%d > %d)", latest.uncompressedOffset, uncompressedOffset)
+			return fmt.Errorf("internal error: Earlier compressed received (%d > %d)", latest.compressedOffset, compressedOffset)
+		}
+		if latest.uncompressedOffset+minIndexDist > uncompressedOffset {
+			// Only add entry if distance is large enough.
+			return nil
 		}
 	}
 	i.info = append(i.info, struct {
@@ -122,7 +128,7 @@ func (i *Index) Find(offset int64) (compressedOff, uncompressedOff int64, err er
 
 // reduce to stay below maxIndexEntries
 func (i *Index) reduce() {
-	if len(i.info) < maxIndexEntries && i.estBlockUncomp >= 1<<20 {
+	if len(i.info) < maxIndexEntries && i.estBlockUncomp >= minIndexDist {
 		return
 	}
 
@@ -132,7 +138,7 @@ func (i *Index) reduce() {
 	j := 0
 
 	// Each block should be at least 1MB, but don't reduce below 1000 entries.
-	for i.estBlockUncomp*(int64(removeN)+1) < 1<<20 && len(i.info)/(removeN+1) > 1000 {
+	for i.estBlockUncomp*(int64(removeN)+1) < minIndexDist && len(i.info)/(removeN+1) > 1000 {
 		removeN++
 	}
 	for idx := 0; idx < len(src); idx++ {
@@ -511,25 +517,86 @@ func IndexStream(r io.Reader) ([]byte, error) {
 
 // JSON returns the index as JSON text.
 func (i *Index) JSON() []byte {
+	type offset struct {
+		CompressedOffset   int64 `json:"compressed"`
+		UncompressedOffset int64 `json:"uncompressed"`
+	}
 	x := struct {
-		TotalUncompressed int64 `json:"total_uncompressed"` // Total Uncompressed size if known. Will be -1 if unknown.
-		TotalCompressed   int64 `json:"total_compressed"`   // Total Compressed size if known. Will be -1 if unknown.
-		Offsets           []struct {
-			CompressedOffset   int64 `json:"compressed"`
-			UncompressedOffset int64 `json:"uncompressed"`
-		} `json:"offsets"`
-		EstBlockUncomp int64 `json:"est_block_uncompressed"`
+		TotalUncompressed int64    `json:"total_uncompressed"` // Total Uncompressed size if known. Will be -1 if unknown.
+		TotalCompressed   int64    `json:"total_compressed"`   // Total Compressed size if known. Will be -1 if unknown.
+		Offsets           []offset `json:"offsets"`
+		EstBlockUncomp    int64    `json:"est_block_uncompressed"`
 	}{
 		TotalUncompressed: i.TotalUncompressed,
 		TotalCompressed:   i.TotalCompressed,
 		EstBlockUncomp:    i.estBlockUncomp,
 	}
 	for _, v := range i.info {
-		x.Offsets = append(x.Offsets, struct {
-			CompressedOffset   int64 `json:"compressed"`
-			UncompressedOffset int64 `json:"uncompressed"`
-		}{CompressedOffset: v.compressedOffset, UncompressedOffset: v.uncompressedOffset})
+		x.Offsets = append(x.Offsets, offset{CompressedOffset: v.compressedOffset, UncompressedOffset: v.uncompressedOffset})
 	}
 	b, _ := json.MarshalIndent(x, "", "  ")
+	return b
+}
+
+// RemoveIndexHeaders will trim all headers and trailers from a given index.
+// This is expected to save 20 bytes.
+// These can be restored using RestoreIndexHeaders.
+// This removes a layer of security, but is the most compact representation.
+// Returns nil if headers contains errors.
+// The returned slice references the provided slice.
+func RemoveIndexHeaders(b []byte) []byte {
+	const save = 4 + len(S2IndexHeader) + len(S2IndexTrailer) + 4
+	if len(b) <= save {
+		return nil
+	}
+	if b[0] != ChunkTypeIndex {
+		return nil
+	}
+	chunkLen := int(b[1]) | int(b[2])<<8 | int(b[3])<<16
+	b = b[4:]
+
+	// Validate we have enough...
+	if len(b) < chunkLen {
+		return nil
+	}
+	b = b[:chunkLen]
+
+	if !bytes.Equal(b[:len(S2IndexHeader)], []byte(S2IndexHeader)) {
+		return nil
+	}
+	b = b[len(S2IndexHeader):]
+	if !bytes.HasSuffix(b, []byte(S2IndexTrailer)) {
+		return nil
+	}
+	b = bytes.TrimSuffix(b, []byte(S2IndexTrailer))
+
+	if len(b) < 4 {
+		return nil
+	}
+	return b[:len(b)-4]
+}
+
+// RestoreIndexHeaders will index restore headers removed by RemoveIndexHeaders.
+// No error checking is performed on the input.
+// If a 0 length slice is sent, it is returned without modification.
+func RestoreIndexHeaders(in []byte) []byte {
+	if len(in) == 0 {
+		return in
+	}
+	b := make([]byte, 0, 4+len(S2IndexHeader)+len(in)+len(S2IndexTrailer)+4)
+	b = append(b, ChunkTypeIndex, 0, 0, 0)
+	b = append(b, []byte(S2IndexHeader)...)
+	b = append(b, in...)
+
+	var tmp [4]byte
+	binary.LittleEndian.PutUint32(tmp[:], uint32(len(b)+4+len(S2IndexTrailer)))
+	b = append(b, tmp[:4]...)
+	// Trailer
+	b = append(b, []byte(S2IndexTrailer)...)
+
+	chunkLen := len(b) - skippableFrameHeader
+	b[1] = uint8(chunkLen >> 0)
+	b[2] = uint8(chunkLen >> 8)
+	b[3] = uint8(chunkLen >> 16)
 	return b
 }
