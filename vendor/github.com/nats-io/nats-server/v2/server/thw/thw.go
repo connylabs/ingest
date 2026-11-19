@@ -191,7 +191,7 @@ func (hw *HashWheel) Count() uint64 {
 	return hw.count
 }
 
-// AppendEncode writes out the contents of the THW into a binary snapshot
+// Encode writes out the contents of the THW into a binary snapshot
 // and returns it. The high seq number is included in the snapshot and will
 // be returned on decode.
 func (hw *HashWheel) Encode(highSeq uint64) []byte {
@@ -227,11 +227,11 @@ func (hw *HashWheel) Decode(b []byte) (uint64, error) {
 	b = b[headerLen:]
 	for i := uint64(0); i < count; i++ {
 		ts, tn := binary.Varint(b)
-		if tn < 0 {
+		if tn <= 0 {
 			return 0, io.ErrUnexpectedEOF
 		}
 		v, vn := binary.Uvarint(b[tn:])
-		if vn < 0 {
+		if vn <= 0 {
 			return 0, io.ErrUnexpectedEOF
 		}
 		hw.Add(v, ts)
