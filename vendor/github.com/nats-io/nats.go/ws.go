@@ -1,4 +1,4 @@
-// Copyright 2021 The NATS Authors
+// Copyright 2021-2023 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,7 +16,6 @@ package nats
 import (
 	"bufio"
 	"bytes"
-	"compress/flate"
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
@@ -24,13 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	mrand "math/rand"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/klauspost/compress/flate"
 )
 
 type wsOpCode int
@@ -76,14 +76,15 @@ var wsGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
 var compressFinalBlock = []byte{0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0x00, 0xff, 0xff}
 
 type websocketReader struct {
-	r       io.Reader
-	pending [][]byte
-	ib      []byte
-	ff      bool
-	fc      bool
-	nl      bool
-	dc      *wsDecompressor
-	nc      *Conn
+	r        io.Reader
+	pending  [][]byte
+	compress bool
+	ib       []byte
+	ff       bool
+	fc       bool
+	nl       bool
+	dc       *wsDecompressor
+	nc       *Conn
 }
 
 type wsDecompressor struct {
@@ -170,8 +171,7 @@ func (d *wsDecompressor) decompress() ([]byte, error) {
 	} else {
 		d.flate.(flate.Resetter).Reset(d, nil)
 	}
-	// TODO: When Go 1.15 support is dropped, replace with io.ReadAll()
-	b, err := ioutil.ReadAll(d.flate)
+	b, err := io.ReadAll(d.flate)
 	// Now reset the compressed buffers list
 	d.bufs = nil
 	return b, err
@@ -238,8 +238,8 @@ func (r *websocketReader) Read(p []byte) (int, error) {
 		case wsPingMessage, wsPongMessage, wsCloseMessage:
 			if rem > wsMaxControlPayloadSize {
 				return 0, fmt.Errorf(
-					fmt.Sprintf("control frame length bigger than maximum allowed of %v bytes",
-						wsMaxControlPayloadSize))
+					"control frame length bigger than maximum allowed of %v bytes",
+					wsMaxControlPayloadSize)
 			}
 			if compressed {
 				return 0, errors.New("control frame should not be compressed")
@@ -313,6 +313,8 @@ func (r *websocketReader) Read(p []byte) (int, error) {
 				}
 				r.fc = false
 			}
+		} else if r.compress {
+			b = bytes.Clone(b)
 		}
 		// Add to the pending list if dealing with uncompressed frames or
 		// after we have received the full compressed message and decompressed it.
@@ -450,8 +452,12 @@ func (w *websocketWriter) Write(p []byte) (int, error) {
 			} else {
 				w.compressor.Reset(buf)
 			}
-			w.compressor.Write(p)
-			w.compressor.Close()
+			if n, err = w.compressor.Write(p); err != nil {
+				return n, err
+			}
+			if err = w.compressor.Flush(); err != nil {
+				return n, err
+			}
 			b := buf.Bytes()
 			p = b[:len(b)-4]
 		}
@@ -552,7 +558,7 @@ func wsFillFrameHeader(fh []byte, compressed bool, frameType wsOpCode, l int) (i
 
 func (nc *Conn) wsInitHandshake(u *url.URL) error {
 	compress := nc.Opts.Compression
-	tlsRequired := u.Scheme == wsSchemeTLS || nc.Opts.Secure || nc.Opts.TLSConfig != nil
+	tlsRequired := u.Scheme == wsSchemeTLS || nc.Opts.Secure || nc.Opts.TLSConfig != nil || nc.Opts.TLSCertCB != nil || nc.Opts.RootCAsCB != nil
 	// Do TLS here as needed.
 	if tlsRequired {
 		if err := nc.makeTLSConn(); err != nil {
@@ -604,6 +610,9 @@ func (nc *Conn) wsInitHandshake(u *url.URL) error {
 	if compress {
 		req.Header.Add("Sec-WebSocket-Extensions", wsPMCReqHeaderValue)
 	}
+	if err := nc.wsUpdateConnectionHeaders(req); err != nil {
+		return err
+	}
 	if err := req.Write(nc.conn); err != nil {
 		return err
 	}
@@ -619,7 +628,7 @@ func (nc *Conn) wsInitHandshake(u *url.URL) error {
 			!strings.EqualFold(resp.Header.Get("Connection"), "upgrade") ||
 			resp.Header.Get("Sec-Websocket-Accept") != wsAcceptKey(wsKey)) {
 
-		err = fmt.Errorf("invalid websocket connection")
+		err = errors.New("invalid websocket connection")
 	}
 	// Check compression extension...
 	if err == nil && compress {
@@ -631,7 +640,7 @@ func (nc *Conn) wsInitHandshake(u *url.URL) error {
 		if !srvCompress {
 			compress = false
 		} else if !noCtxTakeover {
-			err = fmt.Errorf("compression negotiation error")
+			err = errors.New("compression negotiation error")
 		}
 	}
 	if resp != nil {
@@ -644,6 +653,7 @@ func (nc *Conn) wsInitHandshake(u *url.URL) error {
 
 	wsr := wsNewReader(nc.br.r)
 	wsr.nc = nc
+	wsr.compress = compress
 	// We have to slurp whatever is in the bufio reader and copy to br.r
 	if n := br.Buffered(); n != 0 {
 		wsr.ib, _ = br.Peek(n)
@@ -694,6 +704,9 @@ func (nc *Conn) wsEnqueueCloseMsgLocked(status int, payload string) {
 	wr.cm = frame
 	wr.cmDone = true
 	nc.bw.flush()
+	if c := wr.compressor; c != nil {
+		c.Close()
+	}
 }
 
 func (nc *Conn) wsEnqueueControlMsg(needsLock bool, frameType wsOpCode, payload []byte) {
@@ -716,6 +729,25 @@ func (nc *Conn) wsEnqueueControlMsg(needsLock bool, frameType wsOpCode, payload 
 		wr.ctrlFrames = append(wr.ctrlFrames, payload)
 	}
 	nc.bw.flush()
+}
+
+func (nc *Conn) wsUpdateConnectionHeaders(req *http.Request) error {
+	var headers http.Header
+	var err error
+	if nc.Opts.WebSocketConnectionHeadersHandler != nil {
+		headers, err = nc.Opts.WebSocketConnectionHeadersHandler()
+		if err != nil {
+			return err
+		}
+	} else {
+		headers = nc.Opts.WebSocketConnectionHeaders
+	}
+	for key, values := range headers {
+		for _, val := range values {
+			req.Header.Add(key, val)
+		}
+	}
+	return nil
 }
 
 func wsPMCExtensionSupport(header http.Header) (bool, bool) {
