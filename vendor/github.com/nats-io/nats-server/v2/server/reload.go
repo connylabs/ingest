@@ -369,6 +369,19 @@ func (u *tagsOption) IsStatszChange() bool {
 	return true
 }
 
+// metadataOption implements the option interface for the `metadata` setting.
+type metadataOption struct {
+	noopOption // Not authOption because this is a no-op; will be reloaded with options.
+}
+
+func (u *metadataOption) Apply(server *Server) {
+	server.Noticef("Reloaded: metadata")
+}
+
+func (u *metadataOption) IsStatszChange() bool {
+	return true
+}
+
 // usersOption implements the option interface for the authorization `users`
 // setting.
 type usersOption struct {
@@ -551,21 +564,20 @@ type maxConnOption struct {
 // below the limit if necessary.
 func (m *maxConnOption) Apply(server *Server) {
 	server.mu.Lock()
-	var (
-		clients = make([]*client, len(server.clients))
-		i       = 0
-	)
+	clients := make([]*client, 0, len(server.clients))
 	// Map iteration is random, which allows us to close random connections.
 	for _, client := range server.clients {
-		clients[i] = client
-		i++
+		if isInternalClient(client.kind) {
+			continue
+		}
+		clients = append(clients, client)
 	}
 	server.mu.Unlock()
 
-	if m.newValue > 0 && len(clients) > m.newValue {
+	if newc := max(0, m.newValue); len(clients) > newc {
 		// Close connections til we are within the limit.
 		var (
-			numClose = len(clients) - m.newValue
+			numClose = len(clients) - newc
 			closed   = 0
 		)
 		for _, client := range clients {
@@ -728,6 +740,35 @@ func (jso jetStreamOption) IsStatszChange() bool {
 	return true
 }
 
+type jetStreamLimitsOption struct {
+	noopOption
+	newMaxMemory int64
+	newMaxStore  int64
+}
+
+func (jso *jetStreamLimitsOption) Apply(s *Server) {
+	js := s.getJetStream()
+	if js == nil {
+		return
+	}
+	js.mu.Lock()
+	if jso.newMaxMemory > 0 {
+		js.config.MaxMemory = jso.newMaxMemory
+		atomic.StoreInt64(&js.memMax, js.config.MaxMemory)
+		s.Noticef("Reloaded: JetStream max_mem_store = %s", friendlyBytes(jso.newMaxMemory))
+	}
+	if jso.newMaxStore > 0 {
+		js.config.MaxStore = jso.newMaxStore
+		atomic.StoreInt64(&js.storeMax, js.config.MaxStore)
+		s.Noticef("Reloaded: JetStream max_file_store = %s", friendlyBytes(jso.newMaxStore))
+	}
+	js.mu.Unlock()
+}
+
+func (jso *jetStreamLimitsOption) IsStatszChange() bool {
+	return true
+}
+
 type defaultSentinelOption struct {
 	noopOption
 	newValue string
@@ -862,6 +903,7 @@ type leafNodeOption struct {
 	noopOption
 	tlsFirstChanged    bool
 	compressionChanged bool
+	disabledChanged    bool
 }
 
 func (l *leafNodeOption) Apply(s *Server) {
@@ -873,8 +915,9 @@ func (l *leafNodeOption) Apply(s *Server) {
 			s.Noticef("Reloaded: LeafNode Remote to %v TLS HandshakeFirst value is: %v", r.URLs, r.TLSHandshakeFirst)
 		}
 	}
-	if l.compressionChanged {
+	if l.compressionChanged || l.disabledChanged {
 		var leafs []*client
+		var solicit []*leafNodeCfg
 		acceptSideCompOpts := &opts.LeafNode.Compression
 
 		s.mu.RLock()
@@ -887,10 +930,15 @@ func (l *leafNodeOption) Apply(s *Server) {
 		if l := len(s.leafRemoteCfgs); l < max {
 			max = l
 		}
-		for i := 0; i < max; i++ {
+		for i := range max {
 			lr := s.leafRemoteCfgs[i]
+			or := opts.LeafNode.Remotes[i]
 			lr.Lock()
-			lr.Compression = opts.LeafNode.Remotes[i].Compression
+			lr.Compression = or.Compression
+			if lr.Disabled && !or.Disabled {
+				solicit = append(solicit, lr)
+			}
+			lr.Disabled = or.Disabled
 			lr.Unlock()
 		}
 
@@ -899,6 +947,13 @@ func (l *leafNodeOption) Apply(s *Server) {
 
 			l.mu.Lock()
 			if r := l.leaf.remote; r != nil {
+				// If newly marked as disabled, collect and ignore the rest.
+				if r.Disabled {
+					l.flags.set(noReconnect)
+					leafs = append(leafs, l)
+					l.mu.Unlock()
+					continue
+				}
 				co = &r.Compression
 			} else {
 				co = acceptSideCompOpts
@@ -929,11 +984,25 @@ func (l *leafNodeOption) Apply(s *Server) {
 			l.mu.Unlock()
 		}
 		s.mu.RUnlock()
-		// Close the connections for which negotiation is required.
+		// Close the connections for which negotiation is required, or that
+		// have been disabled.
 		for _, l := range leafs {
 			l.closeConnection(ClientClosed)
 		}
-		s.Noticef("Reloaded: LeafNode compression settings")
+		if l.compressionChanged {
+			s.Noticef("Reloaded: LeafNode compression settings")
+		}
+		if l.disabledChanged {
+			if len(leafs) > 0 {
+				s.Noticef("Reloaded: LeafNode(s) disabled")
+			}
+			if len(solicit) > 0 {
+				for _, remote := range solicit {
+					s.startGoRoutine(func() { s.connectToRemoteLeafNode(remote, true) })
+				}
+				s.Noticef("Reloaded: LeafNode(s) enabled")
+			}
+		}
 	}
 }
 
@@ -991,7 +1060,7 @@ func (s *Server) recheckPinnedCerts(curOpts *Options, newOpts *Options) {
 			}
 		})
 	}
-	if s.gateway.enabled && reflect.DeepEqual(newOpts.Gateway.TLSPinnedCerts, curOpts.Gateway.TLSPinnedCerts) {
+	if s.gateway.enabled && !reflect.DeepEqual(newOpts.Gateway.TLSPinnedCerts, curOpts.Gateway.TLSPinnedCerts) {
 		gw := s.gateway
 		gw.RLock()
 		for _, c := range gw.out {
@@ -1008,6 +1077,38 @@ func (s *Server) recheckPinnedCerts(curOpts *Options, newOpts *Options) {
 		for _, c := range disconnectClients {
 			c.closeConnection(TLSHandshakeError)
 		}
+	}
+}
+
+type proxiesReload struct {
+	noopOption
+	add []string
+	del []string
+}
+
+func (p *proxiesReload) Apply(s *Server) {
+	var clients []*client
+	s.mu.Lock()
+	for _, k := range p.del {
+		cc := s.proxiedConns[k]
+		delete(s.proxiedConns, k)
+		if len(cc) > 0 {
+			for _, c := range cc {
+				clients = append(clients, c)
+			}
+		}
+	}
+	s.processProxiesTrustedKeys()
+	s.mu.Unlock()
+	if len(p.del) > 0 {
+		for _, c := range clients {
+			c.setAuthError(ErrAuthProxyNotTrusted)
+			c.authViolation()
+		}
+		s.Noticef("Reloaded: proxies trusted keys %q were removed", p.del)
+	}
+	if len(p.add) > 0 {
+		s.Noticef("Reloaded: proxies trusted keys %q were added", p.add)
 	}
 }
 
@@ -1103,10 +1204,12 @@ func (s *Server) ReloadOptions(newOpts *Options) error {
 
 	s.recheckPinnedCerts(curOpts, newOpts)
 
+	s.varzMu.Lock()
 	s.mu.Lock()
 	s.configTime = time.Now().UTC()
 	s.updateVarzConfigReloadableFields(s.varz)
 	s.mu.Unlock()
+	s.varzMu.Unlock()
 	return nil
 }
 func applyBoolFlags(newOpts, flagOpts *Options) {
@@ -1186,7 +1289,7 @@ func imposeOrder(value any) error {
 		slices.Sort(value.AllowedOrigins)
 	case string, bool, uint8, uint16, uint64, int, int32, int64, time.Duration, float64, nil, LeafNodeOpts, ClusterOpts, *tls.Config, PinnedCertSet,
 		*URLAccResolver, *MemAccResolver, *DirAccResolver, *CacheDirAccResolver, Authentication, MQTTOpts, jwt.TagList,
-		*OCSPConfig, map[string]string, JSLimitOpts, StoreCipher, *OCSPResponseCacheConfig, WriteTimeoutPolicy:
+		*OCSPConfig, map[string]string, JSLimitOpts, StoreCipher, *OCSPResponseCacheConfig, *ProxiesConfig, WriteTimeoutPolicy:
 		// explicitly skipped types
 	case *AuthCallout:
 	case JSTpmOpts:
@@ -1214,6 +1317,7 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 		jsMemLimitsChanged  bool
 		jsFileLimitsChanged bool
 		jsStoreDirChanged   bool
+		jsLimitsUpdate      *jetStreamLimitsOption
 	)
 	for i := 0; i < oldConfig.NumField(); i++ {
 		field := oldConfig.Type().Field(i)
@@ -1283,6 +1387,8 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			diffOpts = append(diffOpts, &passwordOption{})
 		case "tags":
 			diffOpts = append(diffOpts, &tagsOption{})
+		case "metadata":
+			diffOpts = append(diffOpts, &metadataOption{})
 		case "authorization":
 			diffOpts = append(diffOpts, &authorizationOption{})
 		case "authtimeout":
@@ -1300,7 +1406,7 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			co := &clusterOption{
 				newValue:        newClusterOpts,
 				permsChanged:    !reflect.DeepEqual(newClusterOpts.Permissions, oldClusterOpts.Permissions),
-				compressChanged: !reflect.DeepEqual(oldClusterOpts.Compression, newClusterOpts.Compression),
+				compressChanged: !compressOptsEqual(&oldClusterOpts.Compression, &newClusterOpts.Compression),
 			}
 			co.diffPoolAndAccounts(&oldClusterOpts)
 			// If there are added accounts, first make sure that we can look them up.
@@ -1371,6 +1477,11 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			tmpOld.tlsConfigOpts = nil
 			tmpNew.tlsConfigOpts = nil
 
+			// Allow TLSPinnedCerts through reload, existing connections
+			// are checked in recheckPinnedCerts
+			tmpOld.TLSPinnedCerts = nil
+			tmpNew.TLSPinnedCerts = nil
+
 			// Need to do the same for remote gateways' TLS configs.
 			// But we can't just set remotes' TLSConfig to nil otherwise this
 			// would lose the real TLS configuration.
@@ -1413,16 +1524,24 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			}
 			// We also support config reload for compression. Check if it changed before
 			// blanking them out for the deep-equal check at the end.
-			compressionChanged := !reflect.DeepEqual(tmpOld.Compression, tmpNew.Compression)
+			compressionChanged := !compressOptsEqual(&tmpOld.Compression, &tmpNew.Compression)
 			if compressionChanged {
 				tmpOld.Compression, tmpNew.Compression = CompressionOpts{}, CompressionOpts{}
 			} else if len(tmpOld.Remotes) == len(tmpNew.Remotes) {
 				// Same that for tls first check, do the remotes now.
-				for i := 0; i < len(tmpOld.Remotes); i++ {
-					if !reflect.DeepEqual(tmpOld.Remotes[i].Compression, tmpNew.Remotes[i].Compression) {
+				for i := range len(tmpOld.Remotes) {
+					if !compressOptsEqual(&tmpOld.Remotes[i].Compression, &tmpNew.Remotes[i].Compression) {
 						compressionChanged = true
 						break
 					}
+				}
+			}
+			// Check if the "disabled" option of each remote has changed.
+			var disabledChanged bool
+			for i := range len(tmpOld.Remotes) {
+				if tmpOld.Remotes[i].Disabled != tmpNew.Remotes[i].Disabled {
+					disabledChanged = true
+					break
 				}
 			}
 
@@ -1517,6 +1636,7 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			diffOpts = append(diffOpts, &leafNodeOption{
 				tlsFirstChanged:    handshakeFirstChanged,
 				compressionChanged: compressionChanged,
+				disabledChanged:    disabledChanged,
 			})
 		case "jetstream":
 			new := newValue.(bool)
@@ -1553,29 +1673,38 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 				fromSet   = !fromUnset
 				toUnset   = new == -1
 				toSet     = !toUnset
+				increased = fromSet && toSet && new > old
 			)
 			if jsEnabled && modified {
 				// Cannot change limits from dynamic storage at runtime.
 				switch {
+				case increased:
+					// Allowed to increase, but not decrease.
+					if jsLimitsUpdate == nil {
+						jsLimitsUpdate = &jetStreamLimitsOption{}
+						diffOpts = append(diffOpts, jsLimitsUpdate)
+					}
+					if optName == "jetstreammaxmemory" {
+						jsLimitsUpdate.newMaxMemory = new
+					} else {
+						jsLimitsUpdate.newMaxStore = new
+					}
 				case fromSet && toUnset:
 					// Limits changed but it may mean that JS is being disabled,
 					// keep track of the change and error in case it is not.
-					switch optName {
-					case "jetstreammaxmemory":
+					if optName == "jetstreammaxmemory" {
 						jsMemLimitsChanged = true
-					case "jetstreammaxstore":
+					} else {
 						jsFileLimitsChanged = true
-					default:
-						return nil, fmt.Errorf("config reload not supported for jetstream max memory and store")
 					}
 				case fromUnset && toSet:
 					// Prevent changing from dynamic max memory / file at runtime.
 					return nil, fmt.Errorf("config reload not supported for jetstream dynamic max memory and store")
 				default:
-					return nil, fmt.Errorf("config reload not supported for jetstream max memory and store")
+					return nil, fmt.Errorf("config reload not supported for decreasing jetstream max memory and store")
 				}
 			}
-		case "jetstreammetacompact", "jetstreammetacompactsize":
+		case "jetstreammetacompact", "jetstreammetacompactsize", "jetstreammetacompactsync":
 			// Allowed at runtime but monitorCluster looks at s.opts directly, so no further work needed here.
 		case "websocket":
 			// Similar to gateways
@@ -1672,6 +1801,12 @@ func (s *Server) diffOptions(newOpts *Options) ([]option, error) {
 			continue
 		case "nofastproducerstall":
 			diffOpts = append(diffOpts, &noFastProdStallReload{noStall: newValue.(bool)})
+		case "proxies":
+			new := newValue.(*ProxiesConfig)
+			old := oldValue.(*ProxiesConfig)
+			if add, del := diffProxiesTrustedKeys(old.Trusted, new.Trusted); len(add) > 0 || len(del) > 0 {
+				diffOpts = append(diffOpts, &proxiesReload{add: add, del: del})
+			}
 		default:
 			// TODO(ik): Implement String() on those options to have a nice print.
 			// %v is difficult to figure what's what, %+v print private fields and
@@ -1731,6 +1866,8 @@ func copyRemoteLNConfigForReloadCompare(current []*RemoteLeafOpts) []*RemoteLeaf
 		cp.DenyImports, cp.DenyExports = nil, nil
 		// Remove compression mode
 		cp.Compression = CompressionOpts{}
+		// Reset disabled status
+		cp.Disabled = false
 		rlns = append(rlns, &cp)
 	}
 	return rlns
@@ -1837,7 +1974,10 @@ func (s *Server) resetInternalLoopInfo() {
 	s.mu.Unlock()
 
 	if resetCh != nil {
-		resetCh <- struct{}{}
+		select {
+		case resetCh <- struct{}{}:
+		case <-s.quitCh:
+		}
 	}
 }
 
@@ -2031,7 +2171,10 @@ func (s *Server) reloadAuthorization() {
 	}
 
 	if resetCh != nil {
-		resetCh <- struct{}{}
+		select {
+		case resetCh <- struct{}{}:
+		case <-s.quitCh:
+		}
 	}
 
 	// Close clients that have moved accounts
@@ -2272,11 +2415,13 @@ func (s *Server) reloadClusterPoolAndAccounts(co *clusterOption, opts *Options) 
 	// Prevent adding new routes until we are ready to do so.
 	s.routesReject = true
 	var ch chan struct{}
+	// Number of per-account route INFO protocols sent that we expect a
+	// confirmation for. Declared here so the wait below can block on it.
+	protosSent := 0
 	// For accounts that have been added to the list of dedicated routes,
 	// send a protocol to their current assigned routes to allow the
 	// other side to prepare for the changes.
 	if len(co.accsAdded) > 0 {
-		protosSent := 0
 		s.accAddedReqID = nuid.Next()
 		for _, an := range co.accsAdded {
 			if s.accRoutes == nil {
@@ -2398,15 +2543,17 @@ func (s *Server) reloadClusterPoolAndAccounts(co *clusterOption, opts *Options) 
 	// If there are routes to close, we need to release the server lock.
 	// Same if we need to wait on responses from the remotes when
 	// processing new per-account routes.
-	if len(routes) > 0 || len(ch) > 0 {
+	if len(routes) > 0 || protosSent > 0 {
 		s.mu.Unlock()
 
-		for done := false; !done && len(ch) > 0; {
+		// Wait for the expected number of confirmations from the remotes.
+		for received := 0; received < protosSent; {
 			select {
 			case <-ch:
+				received++
 			case <-time.After(2 * time.Second):
 				s.Warnf("Timed out waiting for confirmation from all routes regarding per-account routes changes")
-				done = true
+				received = protosSent
 			}
 		}
 
@@ -2537,4 +2684,25 @@ addLoop:
 	}
 
 	return add, remove
+}
+
+func diffProxiesTrustedKeys(old, new []*ProxyConfig) ([]string, []string) {
+	var add []string
+	var del []string
+	// Both "old" and "new" lists should be small...
+	for _, op := range old {
+		if !slices.ContainsFunc(new, func(pc *ProxyConfig) bool {
+			return pc.Key == op.Key
+		}) {
+			del = append(del, op.Key)
+		}
+	}
+	for _, np := range new {
+		if !slices.ContainsFunc(old, func(pc *ProxyConfig) bool {
+			return pc.Key == np.Key
+		}) {
+			add = append(add, np.Key)
+		}
+	}
+	return add, del
 }

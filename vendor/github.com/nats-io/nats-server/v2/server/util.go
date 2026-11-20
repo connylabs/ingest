@@ -166,7 +166,7 @@ func urlsAreEqual(u1, u2 *url.URL) bool {
 // e.g. comma(834142) -> 834,142
 //
 // This function was copied from the github.com/dustin/go-humanize
-// package and is Copyright Dustin Sallings <dustin@spy.net>
+// package (MIT License) and is Copyright Dustin Sallings <dustin@spy.net>
 func comma(v int64) string {
 	sign := ""
 
@@ -314,7 +314,7 @@ func getURLsAsString(urls []*url.URL) []string {
 	return a
 }
 
-// copyBytes make a new slice of the same size than `src` and copy its content.
+// copyBytes make a new slice of the same size as `src` and copy its content.
 // If `src` is nil or its length is 0, then this returns `nil`
 func copyBytes(src []byte) []byte {
 	if len(src) == 0 {

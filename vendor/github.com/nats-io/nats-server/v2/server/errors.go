@@ -31,6 +31,14 @@ var (
 	// ErrAuthExpired represents an expired authorization due to timeout.
 	ErrAuthExpired = errors.New("authentication expired")
 
+	// ErrAuthProxyNotTrusted represents an error condition on failed authentication
+	// due to a connection from a proxy not in the list of trusted proxies.
+	ErrAuthProxyNotTrusted = errors.New("proxy is not trusted")
+
+	// ErrAuthProxyRequired represents an error condition on failed authentication
+	// due to a connection not coming from a proxy.
+	ErrAuthProxyRequired = errors.New("proxy connection required")
+
 	// ErrMaxPayload represents an error condition when the payload is too big.
 	ErrMaxPayload = errors.New("maximum payload exceeded")
 
@@ -246,6 +254,9 @@ type mappingDestinationErr struct {
 }
 
 func (e *mappingDestinationErr) Error() string {
+	if e.token == _EMPTY_ {
+		return e.err.Error()
+	}
 	return fmt.Sprintf("%s in %s", e.err, e.token)
 }
 
